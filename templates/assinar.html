@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Assinar contrato · Sportrail</title>
+<style>
+  :root{--red:#ED1C24;--ink:#0B0A0F;--mut:#888;--cream:#FAF8F5;}
+  *{box-sizing:border-box;font-family:'DM Sans',system-ui,Arial,sans-serif;}
+  body{margin:0;background:#e9e6e0;color:#0B0A0F;}
+  .top{background:var(--ink);color:var(--cream);padding:14px 20px;font-weight:800;letter-spacing:1px;}
+  .top span{color:var(--red);}
+  .wrap{max-width:780px;margin:0 auto;padding:20px;}
+  .doc{background:#fff;border:1px solid #d8d3ca;padding:6px;margin-bottom:18px;}
+  .doc iframe{width:100%;height:520px;border:0;}
+  .painel{background:#fff;border:1px solid #d8d3ca;border-radius:5px;padding:18px;}
+  h2{font-size:16px;margin:0 0 4px;}
+  p{font-size:13.5px;color:#444;}
+  canvas{width:100%;height:160px;border:1px dashed #b9b3a8;border-radius:5px;background:#fbfaf7;touch-action:none;}
+  .acoes{display:flex;gap:10px;align-items:center;margin-top:10px;}
+  .limpar{background:#eee;border:0;border-radius:5px;padding:9px 12px;cursor:pointer;font-size:13px;}
+  label.cons{display:flex;gap:9px;font-size:13px;margin:14px 0;align-items:flex-start;}
+  button.sub{background:var(--red);color:#fff;border:0;border-radius:5px;padding:13px 20px;
+    font-size:15px;font-weight:700;cursor:pointer;width:100%;}
+  button.sub:disabled{opacity:.45;cursor:not-allowed;}
+</style>
+</head>
+<body>
+<div class="top">SPORT<span>RAIL</span> · Contrato de Formação</div>
+<div class="wrap">
+  <div class="doc">
+    <iframe srcdoc="{{ contrato_html | e }}"></iframe>
+  </div>
+
+  <div class="painel">
+    <h2>Olá {{ formando.nome }} 👋</h2>
+    <p>Lê o contrato acima. Para concluir a tua inscrição em <b>{{ curso.nome }}</b> e
+       podermos emitir o teu certificado, assina abaixo com o dedo ou o rato.</p>
+
+    <canvas id="pad"></canvas>
+    <div class="acoes"><button type="button" class="limpar" onclick="limpar()">limpar</button>
+      <span style="font-size:12px;color:#888">Assina dentro da caixa</span></div>
+
+    <label class="cons">
+      <input type="checkbox" id="cons">
+      <span>{{ consentimento_txt }}</span>
+    </label>
+
+    <button class="sub" id="btn" disabled onclick="submeter()">Assinar e submeter contrato</button>
+  </div>
+</div>
+
+<form id="f" action="/assinar/{{ token }}" method="post" style="display:none">
+  <input type="hidden" name="assinatura" id="dataurl">
+  <input type="hidden" name="consentimento" id="consval">
+</form>
+
+<script>
+const cv = document.getElementById('pad'), ctx = cv.getContext('2d');
+function fit(){const r=cv.getBoundingClientRect();cv.width=r.width*2;cv.height=r.height*2;ctx.scale(2,2);ctx.lineWidth=2;ctx.lineCap='round';ctx.strokeStyle='#0B0A0F';}
+fit(); let draw=false,vazio=true,last=null;
+function pos(e){const r=cv.getBoundingClientRect();const t=e.touches?e.touches[0]:e;return{x:t.clientX-r.left,y:t.clientY-r.top};}
+function start(e){draw=true;last=pos(e);e.preventDefault();}
+function move(e){if(!draw)return;const p=pos(e);ctx.beginPath();ctx.moveTo(last.x,last.y);ctx.lineTo(p.x,p.y);ctx.stroke();last=p;vazio=false;refresh();e.preventDefault();}
+function end(){draw=false;}
+cv.addEventListener('mousedown',start);cv.addEventListener('mousemove',move);window.addEventListener('mouseup',end);
+cv.addEventListener('touchstart',start);cv.addEventListener('touchmove',move);cv.addEventListener('touchend',end);
+function limpar(){ctx.clearRect(0,0,cv.width,cv.height);vazio=true;refresh();}
+document.getElementById('cons').addEventListener('change',refresh);
+function refresh(){document.getElementById('btn').disabled=!(!vazio && document.getElementById('cons').checked);}
+function submeter(){
+  document.getElementById('dataurl').value=cv.toDataURL('image/png');
+  document.getElementById('consval').value=document.getElementById('cons').checked?'on':'';
+  document.getElementById('f').submit();
+}
+</script>
+</body>
+</html>

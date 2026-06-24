@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# Estado runtime e outputs gerados
+data/state.json
+data/pdfs/
+data/arquivo/
+data/upload_*.xlsx
+data/*.pdf
+data/*.png
+
+# Segredos — NUNCA versionar
+.env
+data/service_account.json
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/

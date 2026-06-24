@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+<meta charset="utf-8">
+<style>
+  @page { size: A4; margin: 22mm 20mm 24mm 20mm; }
+  * { font-family: "DejaVu Sans", "DM Sans", Arial, sans-serif; }
+  body { color: #0B0A0F; font-size: 10.5pt; line-height: 1.5; }
+  .cabecalho { border-bottom: 2px solid #ED1C24; padding-bottom: 8px; margin-bottom: 18px; }
+  .marca { font-size: 20pt; font-weight: 800; letter-spacing: 1px; color: #0B0A0F; }
+  .marca span { color: #ED1C24; }
+  .ent { font-size: 8.5pt; color: #555; margin-top: 2px; }
+  h1 { font-size: 14pt; text-align: center; margin: 6px 0 2px; text-transform: uppercase; letter-spacing: .5px; }
+  .sub { text-align: center; font-size: 9pt; color: #777; margin-bottom: 16px; }
+  .partes { background: #FAF8F5; border: 1px solid #e7e2da; padding: 12px 14px; margin-bottom: 14px; font-size: 9.5pt; }
+  .partes b { color: #ED1C24; }
+  .clausula { margin-bottom: 11px; }
+  .clausula .t { font-weight: 700; text-transform: uppercase; font-size: 9.5pt; margin-bottom: 2px; }
+  .destaque { background: #fff6f6; border-left: 3px solid #ED1C24; padding: 8px 12px; margin: 12px 0; font-size: 9.5pt; }
+  .destaque table { width: 100%; border-collapse: collapse; }
+  .destaque td { padding: 2px 4px; }
+  .destaque td.k { color: #777; width: 38%; }
+  .destaque td.v { font-weight: 700; }
+  .assinaturas { margin-top: 26px; display: flex; justify-content: space-between; }
+  .bloco-ass { width: 46%; text-align: center; }
+  .bloco-ass img { height: 52px; margin-bottom: 4px; }
+  .linha-ass { border-top: 1px solid #0B0A0F; padding-top: 4px; font-size: 9pt; }
+  .papel { color: #777; font-size: 8pt; }
+  .auditoria { margin-top: 22px; border-top: 1px dashed #bbb; padding-top: 8px; font-size: 7.5pt; color: #888; }
+  .auditoria b { color: #555; }
+  .placeholder-leg { color: #b00; font-style: italic; }
+</style>
+</head>
+<body>
+  <div class="cabecalho">
+    <div class="marca">SPORT<span>RAIL</span></div>
+    <div class="ent">Sportrail, Lda. &middot; NIF {{ entidade.nif }} &middot; Entidade Formadora Certificada DGERT &middot; {{ entidade.morada }}</div>
+  </div>
+
+  <h1>Contrato de Formação Profissional</h1>
+  <div class="sub">Ao abrigo da Portaria n.º 851/2010, de 6 de setembro</div>
+
+  <div class="partes">
+    Entre <b>Sportrail, Lda.</b>, NIF {{ entidade.nif }}, adiante designada <b>Entidade Formadora</b>,
+    e <b>{{ formando.nome }}</b>{% if formando.nif %}, NIF {{ formando.nif }}{% endif %}, adiante designado(a) <b>Formando(a)</b>,
+    é celebrado o presente contrato de formação, que se rege pelas cláusulas seguintes:
+  </div>
+
+  <div class="destaque">
+    <table>
+      <tr><td class="k">Ação de formação</td><td class="v">{{ curso.nome }}</td></tr>
+      <tr><td class="k">Modalidade</td><td class="v">{{ curso.modalidade }}</td></tr>
+      <tr><td class="k">Duração</td><td class="v">{{ curso.duracao }}</td></tr>
+      <tr><td class="k">Data de início</td><td class="v">{{ curso.data_inicio }}</td></tr>
+      <tr><td class="k">Data de conclusão</td><td class="v">{{ curso.data_conclusao }}</td></tr>
+      <tr><td class="k">Valor pago</td><td class="v">{{ formando.valor_pago }}</td></tr>
+    </table>
+  </div>
+
+  <!-- ATENCAO: texto legal abaixo e RASCUNHO. Substituir pelas 8 clausulas
+       validadas do generate_contracts_v2.js antes de uso real. -->
+  {% for c in clausulas %}
+  <div class="clausula">
+    <div class="t">{{ c.titulo }}</div>
+    <div>{{ c.texto }}</div>
+  </div>
+  {% endfor %}
+
+  <div class="assinaturas">
+    <div class="bloco-ass">
+      {% if assinatura_diretora %}<img src="{{ assinatura_diretora }}">{% else %}<div style="height:52px"></div>{% endif %}
+      <div class="linha-ass">{{ entidade.diretora }}</div>
+      <div class="papel">Diretora Pedagógica &middot; Entidade Formadora</div>
+    </div>
+    <div class="bloco-ass">
+      {% if assinatura_formando %}<img src="{{ assinatura_formando }}">{% else %}<div style="height:52px"></div>{% endif %}
+      <div class="linha-ass">{{ formando.nome }}</div>
+      <div class="papel">Formando(a)</div>
+    </div>
+  </div>
+
+  {% if auditoria %}
+  <div class="auditoria">
+    <b>Registo de assinatura eletrónica</b><br>
+    Assinado por {{ formando.nome }} em {{ auditoria.data }} (hora {{ auditoria.tz }}).
+    Endereço IP: {{ auditoria.ip }}. Consentimento explícito registado{% if tipo == 'B2C' %}, incluindo pedido expresso de início da formação durante o prazo de livre resolução{% endif %}.
+    Identificador do documento: {{ auditoria.doc_id }}.
+    Impressão digital SHA-256 (conteúdo): {{ auditoria.hash }}.
+  </div>
+  {% endif %}
+
+  {% if formulario_resolucao %}
+  <div style="page-break-before: always;"></div>
+  <div class="cabecalho">
+    <div class="marca">SPORT<span>RAIL</span></div>
+    <div class="ent">Anexo ao Contrato de Formação &middot; Sportrail, Lda. &middot; NIF {{ entidade.nif }}</div>
+  </div>
+  <h1>Formulário de Livre Resolução</h1>
+  <div class="sub">Decreto-Lei n.º 24/2014, de 14 de fevereiro &middot; a usar apenas se desejar resolver o contrato</div>
+  <div class="destaque" style="margin-top:14px">
+    <p style="margin:0 0 8px"><b>Para:</b> {{ entidade.nome }}, NIF {{ entidade.nif }}, {{ entidade.morada }} — [EMAIL DA ENTIDADE]</p>
+    <p style="margin:0">[JURISTA] Pela presente comunico que resolvo o contrato de formação relativo à
+       ação <b>{{ curso.nome }}</b>, celebrado em ____ / ____ / ________.</p>
+  </div>
+  <table style="width:100%; font-size:9.5pt; margin-top:18px">
+    <tr><td style="padding:14px 0;">Nome do(a) formando(a):</td><td style="border-bottom:1px solid #999;">&nbsp;{{ formando.nome }}</td></tr>
+    <tr><td style="padding:14px 0;">Data:</td><td style="border-bottom:1px solid #999;">&nbsp;</td></tr>
+    <tr><td style="padding:14px 0;">Assinatura:</td><td style="border-bottom:1px solid #999;">&nbsp;</td></tr>
+  </table>
+  <div class="auditoria" style="margin-top:24px">
+    O(A) Formando(a) dispõe de {{ prazo_resolucao }} dias seguidos, a contar da celebração do contrato,
+    para exercer este direito sem indicar motivo e sem custo, sem prejuízo do pagamento proporcional
+    do serviço já prestado caso a formação tenha tido início a seu pedido expresso. [JURISTA: confirmar texto.]
+  </div>
+  {% endif %}
+
+</body>
+</html>

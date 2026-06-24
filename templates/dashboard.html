@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sportrail · Lote {{ lote_id }}</title>
+<style>
+  :root{--red:#ED1C24;--ink:#0B0A0F;--card:#13121A;--mut:#AAAAAA;--cream:#FAF8F5;}
+  *{box-sizing:border-box;font-family:'DM Sans',system-ui,Arial,sans-serif;}
+  body{margin:0;background:var(--ink);color:var(--cream);}
+  .wrap{max-width:920px;margin:0 auto;padding:32px 20px;}
+  .brand{font-size:24px;font-weight:800;}.brand span{color:var(--red);}
+  a.volta{color:var(--mut);font-size:13px;text-decoration:none;}
+  h1{font-size:19px;margin:16px 0 2px;}
+  .meta{color:var(--mut);font-size:13px;}
+  table{width:100%;border-collapse:collapse;margin-top:18px;font-size:13.5px;}
+  th{text-align:left;color:var(--mut);font-weight:600;border-bottom:1px solid #2a2933;padding:8px 6px;}
+  td{padding:9px 6px;border-bottom:1px solid #1c1b24;vertical-align:middle;}
+  .pill{padding:3px 9px;border-radius:20px;font-size:11px;font-weight:700;}
+  .pend{background:#3a2a00;color:#ffcf5c;}.ass{background:#0d2e16;color:#5ce08a;}
+  .link{color:var(--red);text-decoration:none;font-size:12px;}
+  .copy{background:#222130;color:#fff;border:0;border-radius:5px;padding:5px 9px;font-size:11px;cursor:pointer;}
+  .small{font-size:11px;color:#666;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="brand">SPORT<span>RAIL</span></div>
+  <a class="volta" href="/">← novo lote</a>
+  <h1>{{ curso.nome }}</h1>
+  <div class="meta">{{ curso.modalidade }} · {{ curso.duracao }} · {{ curso.data_inicio }} a {{ curso.data_conclusao }} · {{ linhas|length }} formandos</div>
+
+  <table>
+    <tr><th>Formando</th><th>Email</th><th>Valor</th><th>Estado</th><th>Link de assinatura</th><th>PDF</th></tr>
+    {% for f in linhas %}
+    <tr>
+      <td>{{ f.nome }}<br><span class="small">{{ f.nif or '' }} · <b>{{ f.tipo_contrato }}</b></span></td>
+      <td>{{ f.email }}</td>
+      <td>{{ f.valor_pago }}</td>
+      <td>
+        {% if f.estado == 'assinado' %}<span class="pill ass">assinado</span><br>
+          <span class="small">{{ f.assinado_em }}</span>
+        {% else %}<span class="pill pend">pendente</span>{% endif %}
+      </td>
+      <td>
+        {% if f.estado != 'assinado' %}
+          <button class="copy" onclick="navigator.clipboard.writeText('{{ f.link }}')">copiar link</button>
+          <div class="small">{{ f.link }}</div>
+        {% else %}<span class="small">—</span>{% endif %}
+      </td>
+      <td>{% if f.estado == 'assinado' %}<a class="link" href="/pdf/{{ f.token }}" target="_blank">abrir</a>{% else %}—{% endif %}</td>
+    </tr>
+    {% endfor %}
+  </table>
+</div>
+</body>
+</html>

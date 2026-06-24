@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Contrato assinado · Sportrail</title>
+<style>
+  *{box-sizing:border-box;font-family:'DM Sans',system-ui,Arial,sans-serif;}
+  body{margin:0;background:#0B0A0F;color:#FAF8F5;display:flex;min-height:100vh;align-items:center;justify-content:center;}
+  .card{max-width:460px;text-align:center;padding:30px;}
+  .brand{font-size:24px;font-weight:800;}.brand span{color:#ED1C24;}
+  .check{font-size:54px;margin:18px 0 8px;}
+  h1{font-size:22px;margin:0 0 8px;}p{color:#AAA;font-size:14.5px;line-height:1.5;}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="brand">SPORT<span>RAIL</span></div>
+  <div class="check">✅</div>
+  {% if ja %}
+  <h1>Este contrato já estava assinado</h1>
+  <p>{{ formando.nome }}, o teu contrato já tinha sido submetido. Não é preciso fazer mais nada.</p>
+  {% else %}
+  <h1>Contrato assinado com sucesso</h1>
+  <p>Obrigado, {{ formando.nome }}. O teu contrato foi registado e arquivado.
+     Vais receber a confirmação por email. Até breve! ⚽</p>
+  {% endif %}
+</div>
+</body>
+</html>

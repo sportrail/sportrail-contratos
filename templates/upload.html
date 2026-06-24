@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sportrail · Gerar Contratos</title>
+<style>
+  :root{--red:#ED1C24;--ink:#0B0A0F;--card:#13121A;--mut:#AAAAAA;--cream:#FAF8F5;}
+  *{box-sizing:border-box;font-family:'DM Sans',system-ui,Arial,sans-serif;}
+  body{margin:0;background:var(--ink);color:var(--cream);}
+  .wrap{max-width:680px;margin:0 auto;padding:32px 20px;}
+  .brand{font-size:28px;font-weight:800;letter-spacing:1px;}
+  .brand span{color:var(--red);}
+  h1{font-size:20px;margin:22px 0 4px;}
+  p.sub{color:var(--mut);margin-top:0;font-size:14px;}
+  form{background:var(--card);border-radius:0;padding:22px;margin-top:18px;}
+  label{display:block;font-size:13px;color:var(--mut);margin:14px 0 5px;}
+  input,select{width:100%;padding:11px 12px;border:1px solid #2a2933;border-radius:5px;
+    background:#0e0d14;color:var(--cream);font-size:14px;}
+  .row{display:flex;gap:12px;}.row>div{flex:1;}
+  button{margin-top:20px;width:100%;background:var(--red);color:#fff;border:0;
+    border-radius:5px;padding:13px;font-size:15px;font-weight:700;cursor:pointer;}
+  .lotes{margin-top:28px;}
+  .lote{background:var(--card);padding:12px 16px;border-radius:0;margin-bottom:8px;
+    display:flex;justify-content:space-between;align-items:center;font-size:14px;}
+  .lote a{color:var(--red);text-decoration:none;font-weight:700;}
+  .hint{font-size:12px;color:#777;margin-top:4px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="brand">SPORT<span>RAIL</span></div>
+  <h1>Gerar contratos de formação</h1>
+  <p class="sub">Preenche os dados do curso e carrega o Excel dos formandos. O sistema cria um link de assinatura por pessoa.</p>
+
+  <form action="/criar-lote" method="post" enctype="multipart/form-data">
+    <label>Nome da ação de formação</label>
+    <input name="nome_curso" required placeholder="Goalkeeper Coaching Course">
+
+    <label>Modalidade</label>
+    <select name="modalidade">
+      <option>Online (formação a distância)</option>
+      <option>Presencial</option>
+      <option>Misto (b-learning)</option>
+    </select>
+
+    <div class="row">
+      <div><label>Duração</label><input name="duracao" required placeholder="12 horas"></div>
+      <div><label>Data de início</label><input name="data_inicio" required placeholder="22/09/2026"></div>
+      <div><label>Data de conclusão</label><input name="data_conclusao" required placeholder="08/10/2026"></div>
+    </div>
+
+    <label>Tipo de contrato (default do lote)</label>
+    <select name="tipo_contrato">
+      <option value="B2C">B2C — formando particular (com direito de livre resolução)</option>
+      <option value="B2B">B2B — empresa/clube adquirente (sem livre resolução)</option>
+    </select>
+    <div class="hint">Podes sobrepor por linha no Excel com a coluna <b>tipo_contrato</b> (B2C/B2B).</div>
+
+    <label>Excel dos formandos (.xlsx)</label>
+    <input type="file" name="excel" accept=".xlsx" required>
+    <div class="hint">Colunas obrigatórias: <b>nome</b>, <b>email</b>. Opcionais: nif, valor_pago, morada, tipo_contrato.</div>
+
+    <button type="submit">Criar lote e gerar links →</button>
+  </form>
+
+  {% if lotes %}
+  <div class="lotes">
+    <h1>Lotes recentes</h1>
+    {% for lid, l in lotes.items() %}
+    <div class="lote">
+      <span>{{ l.curso.nome }} · {{ l.formandos|length }} formandos</span>
+      <a href="/lote/{{ lid }}">abrir →</a>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+</div>
+</body>
+</html>

@@ -1,0 +1,10 @@
+fastapi
+uvicorn[standard]
+python-multipart
+jinja2
+openpyxl
+weasyprint
+pypdf
+# Só necessário para arquivo real no Google Drive:
+google-api-python-client
+google-auth

@@ -1,0 +1,143 @@
+"""
+App web — Contratos de Formação Sportrail (protótipo Caminho B).
+
+Fluxo:
+  1. Coordenador abre "/", preenche dados do curso e carrega o Excel.
+  2. Sistema cria um lote, um link único de assinatura por formando.
+  3. Coordenador envia os links (a app mostra-os e dá captions prontos).
+  4. Formando abre o link, lê o contrato, assina no canvas, consente, submete.
+  5. App gera PDF assinado + auditoria, arquiva no Drive, marca como assinado.
+  6. Dashboard mostra estado por formando.
+"""
+import secrets
+from pathlib import Path
+
+from fastapi import FastAPI, Request, UploadFile, Form
+from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+
+from core import excel_parser, contract, store, drive
+
+BASE = Path(__file__).resolve().parent
+DATA = BASE / "data"
+PDFS = DATA / "pdfs"
+PDFS.mkdir(parents=True, exist_ok=True)
+
+app = FastAPI(title="Sportrail — Contratos de Formação")
+app.mount("/static", StaticFiles(directory=str(BASE / "static")), name="static")
+web = Jinja2Templates(directory=str(BASE / "templates"))
+
+
+def _base_url(request: Request) -> str:
+    # Permite override por proxy (BASE_URL) para os links serem públicos.
+    import os
+    return os.environ.get("BASE_URL", str(request.base_url)).rstrip("/")
+
+
+@app.get("/", response_class=HTMLResponse)
+def home(request: Request):
+    return web.TemplateResponse(request, "upload.html", {"lotes": store.todos_os_lotes()})
+
+
+@app.post("/criar-lote")
+async def criar_lote(request: Request,
+                     nome_curso: str = Form(...),
+                     modalidade: str = Form("Online (formação a distância)"),
+                     duracao: str = Form(...),
+                     data_inicio: str = Form(...),
+                     data_conclusao: str = Form(...),
+                     tipo_contrato: str = Form("B2C"),
+                     excel: UploadFile = Form(...)):
+    tmp = DATA / f"upload_{secrets.token_hex(4)}.xlsx"
+    tmp.write_bytes(await excel.read())
+    try:
+        formandos = excel_parser.ler_formandos(tmp)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+    curso = {"nome": nome_curso, "modalidade": modalidade, "duracao": duracao,
+             "data_inicio": data_inicio, "data_conclusao": data_conclusao}
+    lote_id = store.criar_lote(curso, formandos, tipo_default=tipo_contrato)
+    return RedirectResponse(f"/lote/{lote_id}", status_code=303)
+
+
+@app.get("/lote/{lote_id}", response_class=HTMLResponse)
+def dashboard(request: Request, lote_id: str):
+    lote = store.obter_lote(lote_id)
+    if not lote:
+        return HTMLResponse("Lote não encontrado", status_code=404)
+    base = _base_url(request)
+    linhas = []
+    for token, f in lote["formandos"].items():
+        linhas.append({**f, "token": token,
+                       "link": f"{base}/assinar/{token}"})
+    return web.TemplateResponse(request, "dashboard.html", {"lote_id": lote_id, "curso": lote["curso"],
+        "linhas": linhas})
+
+
+@app.get("/assinar/{token}", response_class=HTMLResponse)
+def pagina_assinar(request: Request, token: str):
+    lote_id, lote, f = store.obter_formando(token)
+    if not f:
+        return HTMLResponse("Contrato não encontrado.", status_code=404)
+    if f["estado"] == "assinado":
+        return web.TemplateResponse(request, "obrigado.html", {"formando": f,
+                                     "ja": True})
+    html_contrato = contract.render_html(lote["curso"], f, tipo=f.get("tipo_contrato", "B2C"))
+    if f.get("tipo_contrato", "B2C").upper() == "B2C":
+        consentimento_txt = (
+            "Declaro que li e aceito as cláusulas do contrato e consinto a "
+            "assinatura eletrónica do mesmo, com o mesmo valor de uma assinatura "
+            "manuscrita. Solicito expressamente o início da formação durante o "
+            "prazo de livre resolução de 14 dias, ficando ciente de que, se vier a "
+            "resolver o contrato, pagarei o valor proporcional ao já prestado.")
+    else:
+        consentimento_txt = (
+            "Declaro que li e aceito as cláusulas do contrato e consinto a "
+            "assinatura eletrónica do mesmo, com o mesmo valor de uma assinatura "
+            "manuscrita, em representação da entidade adquirente da formação.")
+    return web.TemplateResponse(request, "assinar.html", {"token": token, "formando": f,
+        "curso": lote["curso"], "contrato_html": html_contrato,
+        "consentimento_txt": consentimento_txt})
+
+
+@app.post("/assinar/{token}")
+async def submeter_assinatura(request: Request, token: str,
+                              assinatura: str = Form(...),
+                              consentimento: str = Form("")):
+    lote_id, lote, f = store.obter_formando(token)
+    if not f:
+        return HTMLResponse("Contrato não encontrado.", status_code=404)
+    if f["estado"] == "assinado":
+        return RedirectResponse(f"/assinar/{token}", status_code=303)
+    if consentimento != "on" or not assinatura.startswith("data:image"):
+        return HTMLResponse("Falta consentimento ou assinatura.", status_code=400)
+
+    ip = request.client.host if request.client else None
+    doc_id = secrets.token_hex(8).upper()
+    aud = contract.construir_auditoria(lote["curso"], f, assinatura, doc_id, ip)
+
+    html = contract.render_html(lote["curso"], f, tipo=f.get("tipo_contrato", "B2C"),
+                                assinatura_formando=assinatura, auditoria=aud)
+    nome_seguro = "".join(c for c in f["nome"] if c.isalnum() or c in " _-").strip().replace(" ", "_")
+    nome_ficheiro = f"contrato_{nome_seguro}_{doc_id}.pdf"
+    pdf_path = PDFS / nome_ficheiro
+    contract.gerar_pdf(html, str(pdf_path))
+
+    drive_id = drive.arquivar(str(pdf_path), lote["curso"]["nome"], nome_ficheiro)
+
+    store.marcar_assinado(token, assinado_em=aud["data"], ip=ip,
+                          hash=aud["hash"], doc_id=doc_id,
+                          pdf_path=str(pdf_path), drive_file_id=drive_id)
+
+    return web.TemplateResponse(request, "obrigado.html", {"formando": f, "ja": False})
+
+
+@app.get("/pdf/{token}")
+def baixar_pdf(token: str):
+    _, _, f = store.obter_formando(token)
+    if not f or not f.get("pdf_path"):
+        return HTMLResponse("Sem PDF.", status_code=404)
+    return FileResponse(f["pdf_path"], media_type="application/pdf",
+                        filename=Path(f["pdf_path"]).name)
