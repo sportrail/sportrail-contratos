@@ -37,7 +37,19 @@ python verify.py
 O `weasyprint` (motor HTML→PDF) precisa de bibliotecas nativas **Pango/Cairo**.
 - macOS: `brew install pango gdk-pixbuf libffi`
 - Debian/Ubuntu: `apt install libpango-1.0-0 libpangocairo-1.0-0 libgdk-pixbuf2.0-0`
+- Deploy: já tratado no `Dockerfile` (instala estas libs via apt).
 Se o `import weasyprint` falhar, é quase sempre isto.
+
+### Variáveis de ambiente (ver `.env.example`)
+- `BASE_URL` — URL pública (links de assinatura). Vazio em local.
+- `ADMIN_USER` / `ADMIN_PASS` — Basic Auth na zona de admin (`/`, criar lote,
+  dashboard). Se vazias → admin ABERTO (ok em local; obrigatórias em produção).
+  As páginas `/assinar/<token>` são protegidas pelo token, não por isto.
+- `DRIVE_ROOT_FOLDER_ID` — arquivo no Drive; sem isto, cai para `data/arquivo/`.
+
+### Deploy (Docker)
+`Dockerfile` pronto para Railway/Render/Fly: instala Pango/Cairo, lê a porta de
+`$PORT`. Build local: `docker build -t contratos . && docker run -p 8000:8000 contratos`.
 
 ## Arquitetura
 
@@ -101,12 +113,13 @@ formandos_exemplo.xlsx exemplo de input
 6. **Autonomous Bug Fixing** — se um teste falha, diagnostica e corrige.
 
 ## Roadmap / pendente
+- [x] Autenticação na zona de admin (`/` e `/lote/*`) — Basic Auth por env.
+- [x] Dockerfile para deploy (Pango/Cairo + `$PORT`).
+- [ ] Ligar o repo ao Railway e definir BASE_URL + ADMIN_USER/ADMIN_PASS.
 - [ ] Colar o texto jurídico validado por cima dos blocos `[JURISTA]`.
 - [ ] Envio automático de emails com os links (SMTP/SendGrid).
-- [ ] Deploy: Dockerfile + Railway (BASE_URL, DRIVE_ROOT_FOLDER_ID).
 - [ ] Configurar arquivo real no Google Drive (conta de serviço — ver README).
 - [ ] Trocar estado JSON por SQLite/Postgres.
-- [ ] Autenticação na zona de admin (`/` e `/lote/*`).
 - [ ] Contrato de formador (além do de formando).
 
 ## Convenções

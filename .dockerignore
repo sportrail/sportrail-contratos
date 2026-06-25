@@ -1,0 +1,29 @@
+# Não copiar para a imagem: ambiente local, estado runtime e segredos.
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Estado e outputs gerados (a app recria-os)
+data/state.json
+data/pdfs/
+data/arquivo/
+data/upload_*.xlsx
+data/*.pdf
+
+# Segredos — NUNCA na imagem
+.env
+data/service_account.json
+
+# Git / OS / editor
+.git/
+.gitignore
+.DS_Store
+.idea/
+.vscode/
+
+# Docs e tarefas não são precisas em runtime
+tasks/
+README.md
+CLAUDE.md

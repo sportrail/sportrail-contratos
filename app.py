@@ -9,11 +9,15 @@ Fluxo:
   5. App gera PDF assinado + auditoria, arquiva no Drive, marca como assinado.
   6. Dashboard mostra estado por formando.
 """
+import os
 import secrets
 from pathlib import Path
+from typing import Optional
 
-from fastapi import FastAPI, Request, UploadFile, Form
+from fastapi import (FastAPI, Request, UploadFile, Form, Depends, HTTPException,
+                     status)
 from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -29,6 +33,32 @@ app.mount("/static", StaticFiles(directory=str(BASE / "static")), name="static")
 web = Jinja2Templates(directory=str(BASE / "templates"))
 
 
+# --- Proteção da zona de administração (Basic Auth) -------------------------
+# Define ADMIN_USER e ADMIN_PASS em produção (ex.: no Railway) para proteger as
+# páginas de admin (/, criar lote, dashboard). Sem elas, o admin fica aberto —
+# cómodo em local, mas NUNCA o exponhas publicamente assim. As páginas dos
+# formandos (/assinar/<token>) são protegidas pelo token aleatório, não por isto.
+_admin_user = os.environ.get("ADMIN_USER")
+_admin_pass = os.environ.get("ADMIN_PASS")
+_security = HTTPBasic(auto_error=False)
+if not (_admin_user and _admin_pass):
+    print("[AVISO] ADMIN_USER/ADMIN_PASS não definidas — zona de admin SEM "
+          "password. OK em local; define-as antes de pôr online.")
+
+
+def require_admin(creds: Optional[HTTPBasicCredentials] = Depends(_security)):
+    """Exige credenciais nas rotas de admin se ADMIN_USER/ADMIN_PASS existirem."""
+    if not (_admin_user and _admin_pass):
+        return  # modo local: sem proteção
+    ok = (creds is not None
+          and secrets.compare_digest(creds.username, _admin_user)
+          and secrets.compare_digest(creds.password, _admin_pass))
+    if not ok:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
+                            detail="Acesso restrito.",
+                            headers={"WWW-Authenticate": "Basic"})
+
+
 def _base_url(request: Request) -> str:
     # Permite override por proxy (BASE_URL) para os links serem públicos.
     import os
@@ -36,7 +66,7 @@ def _base_url(request: Request) -> str:
 
 
 @app.get("/", response_class=HTMLResponse)
-def home(request: Request):
+def home(request: Request, _admin: None = Depends(require_admin)):
     return web.TemplateResponse(request, "upload.html", {"lotes": store.todos_os_lotes()})
 
 
@@ -48,7 +78,8 @@ async def criar_lote(request: Request,
                      data_inicio: str = Form(...),
                      data_conclusao: str = Form(...),
                      tipo_contrato: str = Form("B2C"),
-                     excel: UploadFile = Form(...)):
+                     excel: UploadFile = Form(...),
+                     _admin: None = Depends(require_admin)):
     tmp = DATA / f"upload_{secrets.token_hex(4)}.xlsx"
     tmp.write_bytes(await excel.read())
     try:
@@ -63,7 +94,7 @@ async def criar_lote(request: Request,
 
 
 @app.get("/lote/{lote_id}", response_class=HTMLResponse)
-def dashboard(request: Request, lote_id: str):
+def dashboard(request: Request, lote_id: str, _admin: None = Depends(require_admin)):
     lote = store.obter_lote(lote_id)
     if not lote:
         return HTMLResponse("Lote não encontrado", status_code=404)
