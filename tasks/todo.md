@@ -14,5 +14,8 @@
 - [x] uvicorn lê $PORT (Railway/Render injetam a porta)
 - [x] .env.example: documentar ADMIN_USER/ADMIN_PASS
 - [x] make verify OK + auth testada (401/200/404) por HTTP
-- [ ] Push para repo GitHub privado
-- [ ] Deploy (Railway): BASE_URL + ADMIN_USER/ADMIN_PASS no painel
+- [x] Push para repo GitHub privado (github.com/sportrail/sportrail-contratos)
+- [x] Deploy Railway (projeto pleasing-dream, serviço sportrail-contratos)
+- [x] Env: BASE_URL + ADMIN_USER + ADMIN_PASS + PORT=8000 (via railway CLI)
+- [x] Domínio público + fluxo e2e validado online (401/200/303, links https)
+- URL: https://sportrail-contratos-production.up.railway.app
