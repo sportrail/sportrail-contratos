@@ -45,11 +45,24 @@ Se o `import weasyprint` falhar, é quase sempre isto.
 - `ADMIN_USER` / `ADMIN_PASS` — Basic Auth na zona de admin (`/`, criar lote,
   dashboard). Se vazias → admin ABERTO (ok em local; obrigatórias em produção).
   As páginas `/assinar/<token>` são protegidas pelo token, não por isto.
+- `PDF_API_TOKEN` — segredo que protege `POST /api/gerar-contrato` (motor de PDF
+  para o dashboard). Sem isto o endpoint dá 503. Igual ao `CONTRATOS_PDF_TOKEN`
+  no dashboard.
 - `DRIVE_ROOT_FOLDER_ID` — arquivo no Drive; sem isto, cai para `data/arquivo/`.
 
-### Deploy (Docker)
-`Dockerfile` pronto para Railway/Render/Fly: instala Pango/Cairo, lê a porta de
-`$PORT`. Build local: `docker build -t contratos . && docker run -p 8000:8000 contratos`.
+### Deploy — Render (ativo)
+Alojado no **Render** (free): `https://sportrail-contratos.onrender.com`
+(serviço `sportrail-contratos`, região Frankfurt, Docker). `render.yaml`
+(Blueprint) + `Dockerfile` (instala Pango/Cairo, lê `$PORT`). Gerido pelo CLI
+`render`. No plano free adormece após ~15 min (1.º pedido ~30s a acordar).
+(Antes esteve no Railway; o trial expirou → migrado para o Render.)
+
+### Papel duplo desta app
+1. **App autónoma** — fluxo completo (upload → dashboard → assinar → PDF).
+2. **Motor de PDF do dashboard** — `POST /api/gerar-contrato` (protegido por
+   `PDF_API_TOKEN`): recebe `{curso, formando, tipo, assinatura, ip}` e devolve
+   `{pdf_base64, hash, doc_id, data}`. O dashboard (Next) delega-lhe só o PDF,
+   reutilizando as cláusulas jurídicas e o WeasyPrint.
 
 ## Arquitetura
 
@@ -115,7 +128,8 @@ formandos_exemplo.xlsx exemplo de input
 ## Roadmap / pendente
 - [x] Autenticação na zona de admin (`/` e `/lote/*`) — Basic Auth por env.
 - [x] Dockerfile para deploy (Pango/Cairo + `$PORT`).
-- [ ] Ligar o repo ao Railway e definir BASE_URL + ADMIN_USER/ADMIN_PASS.
+- [x] Deploy online (Render free): BASE_URL + ADMIN + PDF_API_TOKEN definidos.
+- [x] Endpoint `/api/gerar-contrato` (motor de PDF para o dashboard).
 - [ ] Colar o texto jurídico validado por cima dos blocos `[JURISTA]`.
 - [ ] Envio automático de emails com os links (SMTP/SendGrid).
 - [ ] Configurar arquivo real no Google Drive (conta de serviço — ver README).
