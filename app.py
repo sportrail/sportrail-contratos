@@ -9,17 +9,19 @@ Fluxo:
   5. App gera PDF assinado + auditoria, arquiva no Drive, marca como assinado.
   6. Dashboard mostra estado por formando.
 """
+import base64
 import os
 import secrets
 from pathlib import Path
 from typing import Optional
 
 from fastapi import (FastAPI, Request, UploadFile, Form, Depends, HTTPException,
-                     status)
+                     status, Header)
 from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from pydantic import BaseModel
 
 from core import excel_parser, contract, store, drive
 
@@ -172,3 +174,41 @@ def baixar_pdf(token: str):
         return HTMLResponse("Sem PDF.", status_code=404)
     return FileResponse(f["pdf_path"], media_type="application/pdf",
                         filename=Path(f["pdf_path"]).name)
+
+
+# --- API: motor de PDF para o Sportrail Dashboard --------------------------
+# O dashboard (Next.js) trata de dados/login/UI e delega SÓ a geração do PDF a
+# este serviço, que reutiliza as cláusulas jurídicas e o WeasyPrint. Chamada
+# servidor-a-servidor, protegida por segredo partilhado PDF_API_TOKEN (Railway).
+_pdf_api_token = os.environ.get("PDF_API_TOKEN")
+
+
+class GerarContratoIn(BaseModel):
+    curso: dict
+    formando: dict
+    tipo: str = "B2C"
+    assinatura: str            # data:image/... base64 da assinatura do formando
+    ip: Optional[str] = None
+
+
+@app.post("/api/gerar-contrato")
+def api_gerar_contrato(dados: GerarContratoIn,
+                       x_api_token: Optional[str] = Header(default=None)):
+    if not _pdf_api_token:
+        raise HTTPException(status_code=503, detail="PDF_API_TOKEN não configurado.")
+    if not x_api_token or not secrets.compare_digest(x_api_token, _pdf_api_token):
+        raise HTTPException(status_code=401, detail="Token de API inválido.")
+
+    doc_id = secrets.token_hex(8).upper()
+    aud = contract.construir_auditoria(dados.curso, dados.formando,
+                                       dados.assinatura, doc_id, dados.ip)
+    html = contract.render_html(dados.curso, dados.formando, tipo=dados.tipo,
+                                assinatura_formando=dados.assinatura, auditoria=aud)
+    pdf = contract.gerar_pdf_bytes(html)
+    return {
+        "pdf_base64": base64.b64encode(pdf).decode(),
+        "hash": aud["hash"],
+        "doc_id": doc_id,
+        "data": aud["data"],
+        "tz": aud["tz"],
+    }

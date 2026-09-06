@@ -48,6 +48,13 @@ def gerar_pdf(html, destino):
     return destino
 
 
+def gerar_pdf_bytes(html):
+    """Renderiza HTML -> PDF e devolve os bytes (sem escrever em disco).
+
+    Usado pelo endpoint /api/gerar-contrato (motor de PDF para o dashboard)."""
+    return HTML(string=html, base_url=str(BASE)).write_pdf()
+
+
 def hash_conteudo(curso, formando, assinatura_formando, doc_id):
     """SHA-256 do conteúdo lógico do contrato (vincula dados+assinatura)."""
     blob = "|".join([
