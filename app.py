@@ -67,6 +67,12 @@ def _base_url(request: Request) -> str:
     return os.environ.get("BASE_URL", str(request.base_url)).rstrip("/")
 
 
+@app.get("/health")
+def health():
+    """Health check público (Render / uptime). Sem auth de propósito."""
+    return {"status": "ok"}
+
+
 @app.get("/", response_class=HTMLResponse)
 def home(request: Request, _admin: None = Depends(require_admin)):
     return web.TemplateResponse(request, "upload.html", {"lotes": store.todos_os_lotes()})

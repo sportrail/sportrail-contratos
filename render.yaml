@@ -1,0 +1,22 @@
+# Render Blueprint — motor de PDF dos contratos Sportrail.
+# Deploy: em render.com → New → Blueprint → liga este repo (sportrail-contratos).
+# O Render lê o Dockerfile. Os valores marcados sync:false são definidos no
+# dashboard do Render (segredos e o BASE_URL, que só se sabe após o 1.º deploy).
+services:
+  - type: web
+    name: sportrail-contratos
+    runtime: docker
+    plan: free
+    region: frankfurt          # Europa (mais perto de PT)
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    # O Render injeta a env var PORT automaticamente; o Dockerfile usa ${PORT}.
+    envVars:
+      - key: ADMIN_USER
+        value: sportrail
+      - key: ADMIN_PASS
+        sync: false            # define no dashboard (segredo)
+      - key: PDF_API_TOKEN
+        sync: false            # define no dashboard (segredo partilhado com o dashboard)
+      - key: BASE_URL
+        sync: false            # define no dashboard após saber o URL .onrender.com
