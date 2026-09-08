@@ -5,7 +5,8 @@ Verifica, ponta-a-ponta e sem rede:
   1. parsing do Excel de exemplo;
   2. geração do PDF B2C (com cláusulas de livre resolução + anexo);
   3. geração do PDF B2B (sem livre resolução);
-  4. trilho de auditoria (hash determinístico) presente.
+  4. trilho de auditoria (hash determinístico) presente;
+  5. nenhum marcador de andaime no texto extraído dos PDFs.
 
 Sai com código 0 se tudo passar, 1 se algo falhar. Pensado para o Claude Code
 poder validar rapidamente que nada partiu.
@@ -15,7 +16,7 @@ import tempfile
 from pathlib import Path
 
 from core import excel_parser, contract
-from core.clausulas import clausulas
+from core.clausulas import ENTIDADE, clausulas
 from pypdf import PdfReader
 
 BASE = Path(__file__).resolve().parent
@@ -30,6 +31,10 @@ def check(cond, msg):
 
 
 def main():
+    # 0) Config da entidade que sai impressa no contrato
+    check(bool(ENTIDADE.get("email")),
+          "ENTIDADE['email'] preenchido (sai na Cláusula 6.ª e no anexo)")
+
     curso = {"nome": "Goalkeeper Coaching Course",
              "modalidade": "Online (formação a distância)",
              "duracao": "12 horas", "data_inicio": "22/09/2026",
@@ -66,6 +71,25 @@ def main():
             curso, f, tipo="B2B", assinatura_formando=sig, auditoria=aud), str(p_b2b))
         n2 = len(PdfReader(str(p_b2b)).pages)
         check(n2 < n1, f"PDF B2B sem anexo, menos páginas que B2C ({n2} págs)")
+
+        # 5) Nenhum marcador de andaime pode chegar ao documento do formando.
+        # Lemos o texto extraído do PDF, não o código-fonte: dois dos marcadores
+        # viviam no template do anexo, que só é renderizado em B2C — um grep aos
+        # .py dava tudo limpo enquanto o documento saía sujo.
+        for rotulo, caminho in (("B2C", p_b2c), ("B2B", p_b2b)):
+            texto = "\n".join(pg.extract_text() or ""
+                              for pg in PdfReader(str(caminho)).pages)
+            sujos = [m for m in ("JURISTA", "[EMAIL", "RASCUNHO") if m in texto]
+            check(not sujos,
+                  f"PDF {rotulo} sem marcadores de andaime"
+                  + (f" (encontrado: {', '.join(sujos)})" if sujos else ""))
+
+        # O email da entidade tem de sair impresso: é o endereço para onde o
+        # formando envia a declaração de livre resolução. Só aparece no B2C.
+        texto_b2c = "\n".join(pg.extract_text() or ""
+                              for pg in PdfReader(str(p_b2c)).pages)
+        check(ENTIDADE["email"] in texto_b2c,
+              f"PDF B2C indica o email da entidade ({ENTIDADE['email']})")
 
     print()
     if falhas:

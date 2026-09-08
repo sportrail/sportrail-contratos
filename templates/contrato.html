@@ -98,8 +98,8 @@
   <h1>Formulário de Livre Resolução</h1>
   <div class="sub">Decreto-Lei n.º 24/2014, de 14 de fevereiro &middot; a usar apenas se desejar resolver o contrato</div>
   <div class="destaque" style="margin-top:14px">
-    <p style="margin:0 0 8px"><b>Para:</b> {{ entidade.nome }}, NIF {{ entidade.nif }}, {{ entidade.morada }} — [EMAIL DA ENTIDADE]</p>
-    <p style="margin:0">[JURISTA] Pela presente comunico que resolvo o contrato de formação relativo à
+    <p style="margin:0 0 8px"><b>Para:</b> {{ entidade.nome }}, NIF {{ entidade.nif }}, {{ entidade.morada }} — {{ entidade.email }}</p>
+    <p style="margin:0">Pela presente comunico que resolvo o contrato de formação relativo à
        ação <b>{{ curso.nome }}</b>, celebrado em ____ / ____ / ________.</p>
   </div>
   <table style="width:100%; font-size:9.5pt; margin-top:18px">
@@ -110,7 +110,7 @@
   <div class="auditoria" style="margin-top:24px">
     O(A) Formando(a) dispõe de {{ prazo_resolucao }} dias seguidos, a contar da celebração do contrato,
     para exercer este direito sem indicar motivo e sem custo, sem prejuízo do pagamento proporcional
-    do serviço já prestado caso a formação tenha tido início a seu pedido expresso. [JURISTA: confirmar texto.]
+    do serviço já prestado caso a formação tenha tido início a seu pedido expresso.
   </div>
   {% endif %}
 
