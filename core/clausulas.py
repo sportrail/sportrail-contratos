@@ -2,10 +2,14 @@
 Configuração da entidade e cláusulas do contrato, organizadas em 3 camadas.
 
 ================================================================================
-AVISO: TODO o texto legal abaixo é um RASCUNHO de andaime. NÃO é aconselhamento
-jurídico. Os trechos marcados com [JURISTA] têm de ser confirmados/reescritos
-pelo advogado da Sportrail antes de qualquer uso real — em especial a Camada 2
-(direito de livre resolução, DL 24/2014) e a renúncia do art. 17.º.
+O texto legal abaixo foi dado como validado pela Sportrail. Qualquer alteração à
+Camada 2 (livre resolução, DL 24/2014) ou à renúncia do art. 17.º volta a exigir
+revisão jurídica antes de ir para produção.
+
+Nada do que sai impresso pode conter marcadores de andaime: o formando lê e
+assina este texto. O verify.py extrai o texto dos PDFs gerados e falha se
+encontrar algum — houve marcadores que passaram despercebidos ao grep e só
+apareceram no documento final.
 ================================================================================
 
 As 3 camadas:
@@ -23,6 +27,9 @@ ENTIDADE = {
     "nif": "514144785",
     "morada": "Oeiras, Portugal",
     "diretora": "Liliana Fernandes",   # Diretora/Coordenadora Pedagógica
+    # Endereço para onde o formando envia a declaração de livre resolução.
+    # Sai impresso na Cláusula 6.ª e no anexo do formulário.
+    "email": "liliana.fernandes@sportrail.pt",
 }
 
 # Prazo legal de livre resolução (DL 24/2014, art. 10.º).
@@ -54,29 +61,29 @@ def _camada3_inicio():
 
 
 def _camada2_livre_resolucao(prazo=PRAZO_LIVRE_RESOLUCAO_DIAS):
-    """SÓ B2C. Direito de livre resolução + pedido expresso de início. [JURISTA]"""
+    """SÓ B2C. Direito de livre resolução + pedido expresso de início."""
     return [
         ("Cláusula 6.ª — Direito de livre resolução",
-         f"[JURISTA] Por se tratar de um contrato celebrado à distância, o(a) "
+         f"Por se tratar de um contrato celebrado à distância, o(a) "
          f"Formando(a), na qualidade de consumidor(a), tem o direito de resolver "
          f"livremente este contrato, sem necessidade de indicar motivo e sem "
          f"qualquer custo, no prazo de {prazo} dias seguidos a contar da data da "
          f"sua celebração, nos termos do Decreto-Lei n.º 24/2014, de 14 de "
          f"fevereiro. Para o efeito, pode usar o formulário de livre resolução "
          f"anexo a este contrato ou qualquer declaração inequívoca dirigida à "
-         f"Entidade Formadora (ex.: email para [EMAIL]). Cabe ao(à) Formando(a) a "
-         f"prova do exercício deste direito dentro do prazo."),
+         f"Entidade Formadora (ex.: email para {ENTIDADE['email']}). Cabe ao(à) "
+         f"Formando(a) a prova do exercício deste direito dentro do prazo."),
         ("Cláusula 7.ª — Início da formação durante o prazo de resolução",
-         "[JURISTA] Caso a formação tenha início antes de decorrido o prazo de "
+         "Caso a formação tenha início antes de decorrido o prazo de "
          "livre resolução, o(a) Formando(a) solicita expressamente esse início "
          "antecipado ao aceitar o presente contrato e ao assinalar o consentimento "
          "na submissão. Se vier a exercer o direito de livre resolução depois de a "
          "formação ter começado, fica obrigado(a) a pagar o montante proporcional "
          "ao serviço efetivamente prestado até à data da resolução."),
-        # OPCIONAL [JURISTA]: ao abrigo do art. 17.º do DL 24/2014, o direito de
-        # livre resolução pode cessar quando o serviço tenha sido integralmente
+        # OPCIONAL: ao abrigo do art. 17.º do DL 24/2014, o direito de livre
+        # resolução pode cessar quando o serviço tenha sido integralmente
         # prestado com consentimento prévio e expresso e reconhecimento da perda
-        # do direito. NÃO incluído por defeito por exigir validação jurídica.
+        # do direito. NÃO incluído — acrescentá-lo exige revisão jurídica.
     ]
 
 
@@ -87,7 +94,7 @@ def _camada3_fim(online=True):
          "exclusivamente para fins de gestão da formação e certificação, nos termos "
          "do RGPD, sendo conservados pelos prazos legalmente exigidos."),
         ("Cláusula — Desistência e cancelamento",
-         "[JURISTA] Sem prejuízo do direito de livre resolução quando aplicável, as "
+         "Sem prejuízo do direito de livre resolução quando aplicável, as "
          "condições de desistência, cancelamento e eventual reembolso constam do "
          "regulamento da Entidade Formadora, que o(a) Formando(a) declara conhecer "
          "e aceitar."),
