@@ -8,57 +8,85 @@ Fluxo:
   4. Formando abre o link, lê o contrato, assina no canvas, consente, submete.
   5. App gera PDF assinado + auditoria, arquiva no Drive, marca como assinado.
   6. Dashboard mostra estado por formando.
+
+Nada de estado em disco: os lotes e os formandos vivem no Postgres do Supabase
+e os PDFs no bucket `contratos`. O tier grátis do Render adormece o serviço e
+tem filesystem efémero — qualquer coisa escrita localmente desaparecia, e com
+ela os links de assinatura já enviados.
 """
 import base64
 import os
 import secrets
+import tempfile
 from pathlib import Path
 from typing import Optional
 
 from fastapi import (FastAPI, Request, UploadFile, Form, Depends, HTTPException,
                      status, Header)
-from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
-from core import excel_parser, contract, store, drive
+from core import excel_parser, contract, store, drive, pdfstore
 
 BASE = Path(__file__).resolve().parent
-DATA = BASE / "data"
-PDFS = DATA / "pdfs"
-PDFS.mkdir(parents=True, exist_ok=True)
 
 app = FastAPI(title="Sportrail — Contratos de Formação")
 app.mount("/static", StaticFiles(directory=str(BASE / "static")), name="static")
 web = Jinja2Templates(directory=str(BASE / "templates"))
 
 
-# --- Proteção da zona de administração (Basic Auth) -------------------------
-# Define ADMIN_USER e ADMIN_PASS em produção (ex.: no Railway) para proteger as
-# páginas de admin (/, criar lote, dashboard). Sem elas, o admin fica aberto —
-# cómodo em local, mas NUNCA o exponhas publicamente assim. As páginas dos
-# formandos (/assinar/<token>) são protegidas pelo token aleatório, não por isto.
-_admin_user = os.environ.get("ADMIN_USER")
-_admin_pass = os.environ.get("ADMIN_PASS")
-_security = HTTPBasic(auto_error=False)
-if not (_admin_user and _admin_pass):
-    print("[AVISO] ADMIN_USER/ADMIN_PASS não definidas — zona de admin SEM "
-          "password. OK em local; define-as antes de pôr online.")
+# --- Proteção da zona de coordenação (Basic Auth) ---------------------------
+# ADMIN_USER e ADMIN_PASS (Environment do Render) protegem "/", criar lote e o
+# dashboard do lote. Estas páginas mostram nome, NIF, morada e email de todos os
+# formandos e os links /assinar/<token>, que permitem assinar em nome de cada
+# um — por isso a proteção FALHA FECHADA: sem as variáveis, respondem 503 em vez
+# de abrirem. Ficam abertas de propósito: /assinar/<token> e /pdf/<token> (o
+# token, enviado a cada formando, é que autoriza), /health (health check do
+# Render; protegê-lo marcava o serviço como não saudável) e /api/gerar-contrato
+# (tem o seu próprio PDF_API_TOKEN).
+# auto_error=False para distinguir "sem credenciais" de "credenciais erradas".
+_REALM_NOME = "Sportrail Contratos"
+_security = HTTPBasic(auto_error=False, realm=_REALM_NOME)
+_REALM = f'Basic realm="{_REALM_NOME}"'
+
+
+def _admin_env() -> tuple[Optional[str], Optional[str]]:
+    """Lidas a cada pedido — permite ao verify.py testar os vários cenários."""
+    return os.environ.get("ADMIN_USER"), os.environ.get("ADMIN_PASS")
+
+
+def _iguais(a: str, b: str) -> bool:
+    # Em bytes: compare_digest com str rebenta (TypeError) se houver não-ASCII.
+    return secrets.compare_digest(a.encode("utf-8"), b.encode("utf-8"))
 
 
 def require_admin(creds: Optional[HTTPBasicCredentials] = Depends(_security)):
-    """Exige credenciais nas rotas de admin se ADMIN_USER/ADMIN_PASS existirem."""
-    if not (_admin_user and _admin_pass):
-        return  # modo local: sem proteção
-    ok = (creds is not None
-          and secrets.compare_digest(creds.username, _admin_user)
-          and secrets.compare_digest(creds.password, _admin_pass))
-    if not ok:
+    """Exige Basic Auth nas rotas de coordenação. Sem ADMIN_USER/ADMIN_PASS → 503."""
+    admin_user, admin_pass = _admin_env()
+    if not (admin_user and admin_pass):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Zona de coordenação indisponível: faltam as variáveis de "
+                   "ambiente ADMIN_USER e/ou ADMIN_PASS no servidor.")
+    if creds is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
-                            detail="Acesso restrito.",
-                            headers={"WWW-Authenticate": "Basic"})
+                            detail="Acesso restrito: autenticação necessária.",
+                            headers={"WWW-Authenticate": _REALM})
+    # Avaliar os dois antes do `and`: o tempo de resposta não revela qual falhou.
+    user_ok = _iguais(creds.username, admin_user)
+    pass_ok = _iguais(creds.password, admin_pass)
+    if not (user_ok and pass_ok):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
+                            detail="Acesso restrito: credenciais inválidas.",
+                            headers={"WWW-Authenticate": _REALM})
+
+
+if not all(_admin_env()):
+    print("[AVISO] ADMIN_USER/ADMIN_PASS não definidas — a zona de coordenação "
+          "responde 503 até as definires (ver .env.example).")
 
 
 def _base_url(request: Request) -> str:
@@ -88,12 +116,11 @@ async def criar_lote(request: Request,
                      tipo_contrato: str = Form("B2C"),
                      excel: UploadFile = Form(...),
                      _admin: None = Depends(require_admin)):
-    tmp = DATA / f"upload_{secrets.token_hex(4)}.xlsx"
-    tmp.write_bytes(await excel.read())
-    try:
-        formandos = excel_parser.ler_formandos(tmp)
-    finally:
-        tmp.unlink(missing_ok=True)
+    # openpyxl quer um caminho; o ficheiro só precisa de existir durante o pedido.
+    with tempfile.NamedTemporaryFile(suffix=".xlsx") as tmp:
+        tmp.write(await excel.read())
+        tmp.flush()
+        formandos = excel_parser.ler_formandos(tmp.name)
 
     curso = {"nome": nome_curso, "modalidade": modalidade, "duracao": duracao,
              "data_inicio": data_inicio, "data_conclusao": data_conclusao}
@@ -161,14 +188,15 @@ async def submeter_assinatura(request: Request, token: str,
                                 assinatura_formando=assinatura, auditoria=aud)
     nome_seguro = "".join(c for c in f["nome"] if c.isalnum() or c in " _-").strip().replace(" ", "_")
     nome_ficheiro = f"contrato_{nome_seguro}_{doc_id}.pdf"
-    pdf_path = PDFS / nome_ficheiro
-    contract.gerar_pdf(html, str(pdf_path))
 
-    drive_id = drive.arquivar(str(pdf_path), lote["curso"]["nome"], nome_ficheiro)
+    pdf_bytes = contract.gerar_pdf_bytes(html)
+    pdf_path = pdfstore.guardar_pdf(lote_id, nome_ficheiro, pdf_bytes)
+    drive_id = drive.arquivar(pdf_bytes, lote["curso"]["nome"], nome_ficheiro,
+                              pdf_path)
 
     store.marcar_assinado(token, assinado_em=aud["data"], ip=ip,
                           hash=aud["hash"], doc_id=doc_id,
-                          pdf_path=str(pdf_path), drive_file_id=drive_id)
+                          pdf_path=pdf_path, drive_file_id=drive_id)
 
     return web.TemplateResponse(request, "obrigado.html", {"formando": f, "ja": False})
 
@@ -178,8 +206,12 @@ def baixar_pdf(token: str):
     _, _, f = store.obter_formando(token)
     if not f or not f.get("pdf_path"):
         return HTMLResponse("Sem PDF.", status_code=404)
-    return FileResponse(f["pdf_path"], media_type="application/pdf",
-                        filename=Path(f["pdf_path"]).name)
+    nome = Path(f["pdf_path"]).name
+    return Response(
+        content=pdfstore.ler_pdf(f["pdf_path"]),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{nome}"'},
+    )
 
 
 # --- API: motor de PDF para o Sportrail Dashboard --------------------------

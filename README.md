@@ -57,8 +57,13 @@ escrito o uso da assinatura nestes contratos padronizados.)
 
 ```bash
 pip install -r requirements.txt
-uvicorn app:app --reload --port 8000
+cp .env.example .env          # traz ADMIN_USER/ADMIN_PASS de exemplo
+uvicorn app:app --reload --port 8000 --env-file .env
 ```
+
+A zona de coordenação (`/`, criar lote, dashboard) exige `ADMIN_USER` e
+`ADMIN_PASS` — sem elas responde 503, nunca abre. Em produção define-as no
+Environment do Render.
 
 Abre `http://127.0.0.1:8000`, preenche o curso, carrega o Excel de exemplo.
 A app leva-te ao dashboard com um link de assinatura por formando.
@@ -85,12 +90,38 @@ Recomendo **Render** para começar: ligas o repositório, defines o comando
 Define a variável de ambiente `BASE_URL` com o teu domínio público (ex.:
 `https://contratos.sportrail.pt`) para os links de assinatura saírem corretos.
 
+### Onde vive o estado (e porquê não em disco)
+
+Os lotes e os formandos ficam no **Postgres do Supabase** e os PDFs assinados no
+bucket privado **`contratos`**. Nada é escrito no disco do servidor.
+
+Isto não é preferência de arquitetura, é obrigatório no plano free do Render: o
+filesystem é efémero e o serviço adormece ao fim de ~15 min sem tráfego. Com o
+estado em `data/state.json`, cada vez que o serviço acordava os tokens de
+assinatura já enviados aos formandos deixavam de existir — o link no email
+passava a dar 404 — e os PDFs assinados desapareciam com eles.
+
+Antes do primeiro deploy, uma vez:
+
+1. corre o **`supabase_schema.sql`** no SQL Editor do Supabase;
+2. cria o bucket **`contratos`** em Storage → New bucket, **Private**;
+3. define `SUPABASE_URL` e `SUPABASE_SERVICE_ROLE_KEY` no Render.
+
+Sem as duas variáveis a app arranca e rebenta no primeiro pedido, de propósito:
+mais vale isso do que aceitar assinaturas e perdê-las no restart seguinte.
+
+A service role key ignora o RLS e **só pode viver no servidor**. As tabelas têm
+o RLS ligado sem políticas nenhumas: o service role passa à frente, e as roles
+`anon`/`authenticated` (as que o dashboard usa no browser) não conseguem ler
+nada. São dados pessoais de terceiros — nome, NIF, morada, email, IP — por isso
+o default tem de ser fechado.
+
 ---
 
 ## 4. Arquivo no Google Drive
 
-Sem configurar nada, os PDFs assinados ficam em `data/arquivo/` (modo local).
-Para arquivar mesmo no Drive, na pasta DTP do curso:
+Sem configurar nada, os PDFs assinados ficam no Supabase Storage — que já é
+arquivo durável. Para arquivar **também** no Drive, na pasta DTP do curso:
 
 1. Em Google Cloud Console → cria uma **conta de serviço** → gera uma chave
    JSON. Guarda-a como `data/service_account.json`.
@@ -149,8 +180,9 @@ formandos_exemplo.xlsx
   trocar por SQLite/Postgres para produção.
 - Sem envio automático de emails — o dashboard dá-te os links para enviares.
   Fácil de adicionar depois (SMTP/SendGrid).
-- Sem autenticação na zona de administração — em produção, protege `/` e
-  `/lote/*` (basic auth ou login). As páginas `/assinar/<token>` já são
+- Zona de coordenação (`/` e `/lote/*`) protegida só por Basic Auth
+  (`ADMIN_USER`/`ADMIN_PASS`, que falha fechada: sem elas responde 503) — um
+  único utilizador, sem login por pessoa. As páginas `/assinar/<token>` são
   protegidas pelo token aleatório.
 - Trilho de auditoria é caseiro (timestamp+IP+hash+consentimento). Suficiente
   e admissível como assinatura eletrónica simples; se quiseres robustez

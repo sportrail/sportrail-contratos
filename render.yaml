@@ -12,6 +12,13 @@ services:
     healthCheckPath: /health
     # O Render injeta a env var PORT automaticamente; o Dockerfile usa ${PORT}.
     envVars:
+      # O estado vive no Supabase porque o disco do Render é efémero. Sem estas
+      # duas, a app arranca mas rebenta no primeiro pedido — de propósito, para
+      # a falta de configuração não passar despercebida.
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false            # acesso total ao Supabase: nunca versionar
       - key: ADMIN_USER
         value: sportrail
       - key: ADMIN_PASS
