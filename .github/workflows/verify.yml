@@ -1,0 +1,55 @@
+# CI — corre o smoke test (verify.py) em cada push/PR para main.
+#
+# O WeasyPrint desenha via Pango/Cairo (bibliotecas de sistema), por isso o
+# runner precisa dos mesmos pacotes apt que o Dockerfile instala no Render.
+# A lista abaixo é a do Dockerfile; mantém as duas em sincronia.
+#   + shared-mime-info: sem ele o gdk-pixbuf não reconhece o PNG da assinatura.
+#   + fonts-dejavu-core: o template pede "DejaVu Sans"; sem a fonte o layout
+#     muda e a contagem de páginas pode divergir.
+#
+# O verify.py sai com código 1 se algo falhar → o job fica vermelho.
+# Não precisa de segredos nem de variáveis de ambiente.
+
+name: verify
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Python 3.12
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Dependências nativas do WeasyPrint (mesma lista do Dockerfile)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libpango-1.0-0 \
+            libpangocairo-1.0-0 \
+            libgdk-pixbuf-2.0-0 \
+            libcairo2 \
+            libffi8 \
+            fonts-dejavu-core \
+            fontconfig \
+            shared-mime-info
+
+      - name: Dependências Python
+        run: pip install -r requirements.txt
+
+      - name: verify.py
+        run: python verify.py
