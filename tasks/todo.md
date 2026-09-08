@@ -24,4 +24,4 @@
 - [x] `.github/workflows/verify.yml`: corre `python verify.py` em push/PR para main
 - [x] apt no runner = mesma lista do Dockerfile (+ shared-mime-info); sem segredos
 - [x] Validado localmente com o verify.py de main, do PR #1 e do PR #2
-- [ ] Confirmar job verde no separador Checks do PR
+- [x] Confirmar job verde no separador Checks do PR (#3, run 1: success)
