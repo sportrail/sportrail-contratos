@@ -14,7 +14,7 @@
 - [x] Manter abertas: /assinar/<token>, /pdf/<token>, /health, /api/gerar-contrato
 - [x] .env.example: valores de exemplo para local (deixou de haver "sem password")
 - [x] verify.py: 503/401/401/401/passa + wiring das rotas (mutação manual acusa FALHA)
-- [ ] Bruno: confirmar ADMIN_PASS no Environment do Render ANTES do merge
+- [x] Bruno confirmou: o Render pede ADMIN_USER/ADMIN_PASS na zona de coordenação (ambas definidas)
 
 ## Sessão 3 — deploy (GitHub + URL público)
 - [x] Basic Auth na zona de admin (ADMIN_USER/ADMIN_PASS por env; aberto em local)
