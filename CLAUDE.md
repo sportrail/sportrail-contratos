@@ -42,9 +42,11 @@ Se o `import weasyprint` falhar, é quase sempre isto.
 
 ### Variáveis de ambiente (ver `.env.example`)
 - `BASE_URL` — URL pública (links de assinatura). Vazio em local.
-- `ADMIN_USER` / `ADMIN_PASS` — Basic Auth na zona de admin (`/`, criar lote,
-  dashboard). Se vazias → admin ABERTO (ok em local; obrigatórias em produção).
-  As páginas `/assinar/<token>` são protegidas pelo token, não por isto.
+- `ADMIN_USER` / `ADMIN_PASS` — Basic Auth na zona de coordenação (`/`, criar
+  lote, dashboard). FALHA FECHADA: se vazias → essas rotas respondem 503, nunca
+  abrem (em local, copia `.env.example` para `.env` e usa `--env-file .env`).
+  `/assinar/<token>`, `/pdf/<token>`, `/health` e `/api/gerar-contrato` ficam
+  fora desta proteção de propósito (token, health check do Render, PDF_API_TOKEN).
 - `PDF_API_TOKEN` — segredo que protege `POST /api/gerar-contrato` (motor de PDF
   para o dashboard). Sem isto o endpoint dá 503. Igual ao `CONTRATOS_PDF_TOKEN`
   no dashboard.

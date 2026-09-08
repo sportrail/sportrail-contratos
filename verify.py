@@ -9,6 +9,11 @@ Verifica, ponta-a-ponta e sem rede:
 
 Sai com código 0 se tudo passar, 1 se algo falhar. Pensado para o Claude Code
 poder validar rapidamente que nada partiu.
+
+Verifica também a Basic Auth da zona de coordenação (require_admin em app.py),
+chamando a função diretamente — sem servidor nem httpx: falha fechada (503 sem
+ADMIN_USER/ADMIN_PASS; 401 sem credenciais ou com credenciais erradas), aceita
+palavra-passe não-ASCII, e só as rotas de coordenação levam a dependência.
 """
 import sys
 import tempfile
@@ -34,6 +39,9 @@ def main():
              "modalidade": "Online (formação a distância)",
              "duracao": "12 horas", "data_inicio": "22/09/2026",
              "data_conclusao": "08/10/2026"}
+
+    # Basic Auth da zona de coordenação (independente do pipeline de PDF)
+    verificar_auth()
 
     # 1) Excel
     formandos = excel_parser.ler_formandos(BASE / "formandos_exemplo.xlsx")
@@ -73,6 +81,93 @@ def main():
         sys.exit(1)
     print("✅ Tudo OK.")
     sys.exit(0)
+
+
+# ---------------------------------------------------------------------------
+# Basic Auth da zona de coordenação
+# ---------------------------------------------------------------------------
+# require_admin tem de falhar FECHADO: sem ADMIN_USER/ADMIN_PASS a zona de
+# coordenação (nome, NIF, morada, email dos formandos + links de assinatura)
+# responde 503, nunca abre. Chamamos a função diretamente com credenciais
+# falsas — sem subir servidor nem depender de httpx.
+
+ROTAS_COORDENACAO = {("GET", "/"), ("POST", "/criar-lote"),
+                     ("GET", "/lote/{lote_id}")}
+ROTAS_ABERTAS = {("GET", "/assinar/{token}"), ("POST", "/assinar/{token}"),
+                 ("GET", "/pdf/{token}"), ("GET", "/health"),
+                 ("POST", "/api/gerar-contrato")}
+
+
+def verificar_auth():
+    import os
+    from fastapi import HTTPException
+    from fastapi.routing import APIRoute
+    from fastapi.security import HTTPBasicCredentials
+    import app as webapp
+
+    def chamar(user, password, env):
+        """Corre require_admin com este ambiente; devolve a exceção ou None."""
+        guardado = {k: os.environ.pop(k, None) for k in ("ADMIN_USER", "ADMIN_PASS")}
+        os.environ.update(env)
+        creds = (None if user is None
+                 else HTTPBasicCredentials(username=user, password=password))
+        try:
+            webapp.require_admin(creds)
+            return None
+        except Exception as e:      # HTTPException esperada; TypeError seria bug
+            return e
+        finally:
+            for k, v in guardado.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+
+    def status(e):
+        return getattr(e, "status_code", None)
+
+    # Palavra-passe com não-ASCII de propósito: compare_digest(str, str) rebenta
+    # com TypeError nestes casos — a comparação tem de ser em bytes.
+    user, password = "sportrail", "pálavra-çã€"
+    env = {"ADMIN_USER": user, "ADMIN_PASS": password}
+
+    e = chamar(user, password, {})
+    check(status(e) == 503, "Sem ADMIN_USER/ADMIN_PASS → 503 (falha fechada, nunca aberta)")
+    e = chamar(user, password, {"ADMIN_USER": user})
+    check(status(e) == 503, "Só ADMIN_USER definido → 503")
+
+    e = chamar(None, None, env)
+    challenge = getattr(e, "headers", None) or {}
+    check(status(e) == 401 and challenge.get("WWW-Authenticate", "").startswith('Basic realm="'),
+          "Com env vars e sem credenciais → 401 + WWW-Authenticate: Basic realm=...")
+    e = chamar(user, "errada", env)
+    check(status(e) == 401 and isinstance(e, HTTPException),
+          "Palavra-passe errada → 401")
+    e = chamar("outro", password, env)
+    check(status(e) == 401 and isinstance(e, HTTPException),
+          "Utilizador errado → 401")
+    e = chamar(user, password, env)
+    check(e is None, "Credenciais certas (com não-ASCII) → passa")
+
+    # Wiring: quais rotas levam mesmo a dependência. Uma rota em falta dá None,
+    # por isso o teste acusa também se alguém a renomear.
+    rotas = {}
+    for rota in webapp.app.routes:
+        if isinstance(rota, APIRoute):
+            protegida = any(d.call is webapp.require_admin
+                            for d in rota.dependant.dependencies)
+            for metodo in rota.methods:
+                rotas[(metodo, rota.path)] = protegida
+    for metodo, caminho in sorted(ROTAS_COORDENACAO):
+        check(rotas.get((metodo, caminho)) is True,
+              f"{metodo} {caminho} exige require_admin")
+    for metodo, caminho in sorted(ROTAS_ABERTAS):
+        check(rotas.get((metodo, caminho)) is False,
+              f"{metodo} {caminho} aberta (sem require_admin)")
+    por_classificar = sorted(set(rotas) - ROTAS_COORDENACAO - ROTAS_ABERTAS)
+    check(not por_classificar,
+          "Todas as rotas classificadas (coordenação ou aberta)"
+          + (f" — por classificar: {por_classificar}" if por_classificar else ""))
 
 
 if __name__ == "__main__":
