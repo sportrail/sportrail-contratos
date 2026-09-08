@@ -35,30 +35,55 @@ app.mount("/static", StaticFiles(directory=str(BASE / "static")), name="static")
 web = Jinja2Templates(directory=str(BASE / "templates"))
 
 
-# --- Proteção da zona de administração (Basic Auth) -------------------------
-# Define ADMIN_USER e ADMIN_PASS em produção (ex.: no Railway) para proteger as
-# páginas de admin (/, criar lote, dashboard). Sem elas, o admin fica aberto —
-# cómodo em local, mas NUNCA o exponhas publicamente assim. As páginas dos
-# formandos (/assinar/<token>) são protegidas pelo token aleatório, não por isto.
-_admin_user = os.environ.get("ADMIN_USER")
-_admin_pass = os.environ.get("ADMIN_PASS")
-_security = HTTPBasic(auto_error=False)
-if not (_admin_user and _admin_pass):
-    print("[AVISO] ADMIN_USER/ADMIN_PASS não definidas — zona de admin SEM "
-          "password. OK em local; define-as antes de pôr online.")
+# --- Proteção da zona de coordenação (Basic Auth) ---------------------------
+# ADMIN_USER e ADMIN_PASS (Environment do Render) protegem "/", criar lote e o
+# dashboard do lote. Estas páginas mostram nome, NIF, morada e email de todos os
+# formandos e os links /assinar/<token>, que permitem assinar em nome de cada
+# um — por isso a proteção FALHA FECHADA: sem as variáveis, respondem 503 em vez
+# de abrirem. Ficam abertas de propósito: /assinar/<token> e /pdf/<token> (o
+# token, enviado a cada formando, é que autoriza), /health (health check do
+# Render; protegê-lo marcava o serviço como não saudável) e /api/gerar-contrato
+# (tem o seu próprio PDF_API_TOKEN).
+# auto_error=False para distinguir "sem credenciais" de "credenciais erradas".
+_REALM_NOME = "Sportrail Contratos"
+_security = HTTPBasic(auto_error=False, realm=_REALM_NOME)
+_REALM = f'Basic realm="{_REALM_NOME}"'
+
+
+def _admin_env() -> tuple[Optional[str], Optional[str]]:
+    """Lidas a cada pedido — permite ao verify.py testar os vários cenários."""
+    return os.environ.get("ADMIN_USER"), os.environ.get("ADMIN_PASS")
+
+
+def _iguais(a: str, b: str) -> bool:
+    # Em bytes: compare_digest com str rebenta (TypeError) se houver não-ASCII.
+    return secrets.compare_digest(a.encode("utf-8"), b.encode("utf-8"))
 
 
 def require_admin(creds: Optional[HTTPBasicCredentials] = Depends(_security)):
-    """Exige credenciais nas rotas de admin se ADMIN_USER/ADMIN_PASS existirem."""
-    if not (_admin_user and _admin_pass):
-        return  # modo local: sem proteção
-    ok = (creds is not None
-          and secrets.compare_digest(creds.username, _admin_user)
-          and secrets.compare_digest(creds.password, _admin_pass))
-    if not ok:
+    """Exige Basic Auth nas rotas de coordenação. Sem ADMIN_USER/ADMIN_PASS → 503."""
+    admin_user, admin_pass = _admin_env()
+    if not (admin_user and admin_pass):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Zona de coordenação indisponível: faltam as variáveis de "
+                   "ambiente ADMIN_USER e/ou ADMIN_PASS no servidor.")
+    if creds is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
-                            detail="Acesso restrito.",
-                            headers={"WWW-Authenticate": "Basic"})
+                            detail="Acesso restrito: autenticação necessária.",
+                            headers={"WWW-Authenticate": _REALM})
+    # Avaliar os dois antes do `and`: o tempo de resposta não revela qual falhou.
+    user_ok = _iguais(creds.username, admin_user)
+    pass_ok = _iguais(creds.password, admin_pass)
+    if not (user_ok and pass_ok):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
+                            detail="Acesso restrito: credenciais inválidas.",
+                            headers={"WWW-Authenticate": _REALM})
+
+
+if not all(_admin_env()):
+    print("[AVISO] ADMIN_USER/ADMIN_PASS não definidas — a zona de coordenação "
+          "responde 503 até as definires (ver .env.example).")
 
 
 def _base_url(request: Request) -> str:

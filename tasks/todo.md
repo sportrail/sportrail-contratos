@@ -7,6 +7,15 @@
 - [x] Anexo formulário de livre resolução no PDF B2C
 - [x] Verificado: B2C 3 págs, B2B 2 págs, fluxo HTTP OK
 
+## Sessão 5 — zona de coordenação falha fechada
+- [x] `require_admin`: sem ADMIN_USER/ADMIN_PASS → 503 (antes abria a quem tivesse o URL)
+- [x] Sem credenciais → 401 + `WWW-Authenticate: Basic realm=...`; erradas → 401
+- [x] Comparação em bytes (compare_digest com str rebenta em passwords não-ASCII)
+- [x] Manter abertas: /assinar/<token>, /pdf/<token>, /health, /api/gerar-contrato
+- [x] .env.example: valores de exemplo para local (deixou de haver "sem password")
+- [x] verify.py: 503/401/401/401/passa + wiring das rotas (mutação manual acusa FALHA)
+- [ ] Bruno: confirmar ADMIN_PASS no Environment do Render ANTES do merge
+
 ## Sessão 3 — deploy (GitHub + URL público)
 - [x] Basic Auth na zona de admin (ADMIN_USER/ADMIN_PASS por env; aberto em local)
 - [x] Dockerfile com Pango/Cairo (weasyprint corre no servidor)

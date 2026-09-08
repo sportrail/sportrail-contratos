@@ -57,8 +57,13 @@ escrito o uso da assinatura nestes contratos padronizados.)
 
 ```bash
 pip install -r requirements.txt
-uvicorn app:app --reload --port 8000
+cp .env.example .env          # traz ADMIN_USER/ADMIN_PASS de exemplo
+uvicorn app:app --reload --port 8000 --env-file .env
 ```
+
+A zona de coordenação (`/`, criar lote, dashboard) exige `ADMIN_USER` e
+`ADMIN_PASS` — sem elas responde 503, nunca abre. Em produção define-as no
+Environment do Render.
 
 Abre `http://127.0.0.1:8000`, preenche o curso, carrega o Excel de exemplo.
 A app leva-te ao dashboard com um link de assinatura por formando.
@@ -149,8 +154,9 @@ formandos_exemplo.xlsx
   trocar por SQLite/Postgres para produção.
 - Sem envio automático de emails — o dashboard dá-te os links para enviares.
   Fácil de adicionar depois (SMTP/SendGrid).
-- Sem autenticação na zona de administração — em produção, protege `/` e
-  `/lote/*` (basic auth ou login). As páginas `/assinar/<token>` já são
+- Zona de coordenação (`/` e `/lote/*`) protegida só por Basic Auth
+  (`ADMIN_USER`/`ADMIN_PASS`, que falha fechada: sem elas responde 503) — um
+  único utilizador, sem login por pessoa. As páginas `/assinar/<token>` são
   protegidas pelo token aleatório.
 - Trilho de auditoria é caseiro (timestamp+IP+hash+consentimento). Suficiente
   e admissível como assinatura eletrónica simples; se quiseres robustez
