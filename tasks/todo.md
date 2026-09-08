@@ -28,3 +28,9 @@
 - [x] Env: BASE_URL + ADMIN_USER + ADMIN_PASS + PORT=8000 (via railway CLI)
 - [x] Domínio público + fluxo e2e validado online (401/200/303, links https)
 - URL: https://sportrail-contratos-production.up.railway.app
+
+## Sessão 5 — CI (GitHub Actions)
+- [x] `.github/workflows/verify.yml`: corre `python verify.py` em push/PR para main
+- [x] apt no runner = mesma lista do Dockerfile (+ shared-mime-info); sem segredos
+- [x] Validado localmente com o verify.py de main, do PR #1 e do PR #2
+- [x] Confirmar job verde no separador Checks do PR (#3, run 1: success)

@@ -38,6 +38,9 @@ O `weasyprint` (motor HTML→PDF) precisa de bibliotecas nativas **Pango/Cairo**
 - macOS: `brew install pango gdk-pixbuf libffi`
 - Debian/Ubuntu: `apt install libpango-1.0-0 libpangocairo-1.0-0 libgdk-pixbuf2.0-0`
 - Deploy: já tratado no `Dockerfile` (instala estas libs via apt).
+- CI: `.github/workflows/verify.yml` corre `python verify.py` em cada push/PR
+  para `main`, com a mesma lista de apt do `Dockerfile`. Se mudares uma lista,
+  muda a outra.
 Se o `import weasyprint` falhar, é quase sempre isto.
 
 ### Variáveis de ambiente (ver `.env.example`)
