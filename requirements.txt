@@ -5,6 +5,8 @@ jinja2
 openpyxl
 weasyprint
 pypdf
+# Estado (lotes/formandos) em Postgres + PDFs em Storage:
+supabase
 # Só necessário para arquivo real no Google Drive:
 google-api-python-client
 google-auth

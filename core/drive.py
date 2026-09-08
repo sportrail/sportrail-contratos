@@ -5,16 +5,17 @@ Setup (ver README): conta de serviço Google + partilha da pasta DTP com o
 email da conta de serviço. Coloca o JSON em data/service_account.json e o
 ID da pasta-raiz em DRIVE_ROOT_FOLDER_ID (variável de ambiente).
 
-Se não houver credenciais, o PDF é guardado em data/arquivo/ e a função
-devolve um id local — o protótipo continua a funcionar ponta-a-ponta.
+Se não houver credenciais, a função devolve o caminho do PDF no Supabase
+Storage — que já é arquivo durável. Antes copiava para data/arquivo/, mas no
+Render esse disco desaparece no restart seguinte: era uma cópia que dava a
+ilusão de arquivo sem o ser.
 """
+import io
 import os
-import shutil
 from pathlib import Path
 
 BASE = Path(__file__).resolve().parent.parent
 CRED = BASE / "data" / "service_account.json"
-ARQUIVO_LOCAL = BASE / "data" / "arquivo"
 
 
 def _tem_credenciais():
@@ -36,17 +37,17 @@ def _garantir_subpasta(service, nome_pasta, parent_id):
     return pasta["id"]
 
 
-def arquivar(pdf_path, nome_curso, nome_ficheiro):
-    """Carrega o PDF para a subpasta DTP do curso. Devolve um id (Drive ou local)."""
+def arquivar(pdf_bytes, nome_curso, nome_ficheiro, caminho_supabase):
+    """
+    Carrega o PDF para a subpasta DTP do curso. Devolve um id do Drive ou, sem
+    credenciais, o caminho no Storage — onde o PDF já está guardado.
+    """
     if not _tem_credenciais():
-        ARQUIVO_LOCAL.mkdir(parents=True, exist_ok=True)
-        destino = ARQUIVO_LOCAL / nome_ficheiro
-        shutil.copy(pdf_path, destino)
-        return f"local::{destino.name}"
+        return f"supabase::{caminho_supabase}"
 
     from google.oauth2 import service_account
     from googleapiclient.discovery import build
-    from googleapiclient.http import MediaFileUpload
+    from googleapiclient.http import MediaIoBaseUpload
 
     scopes = ["https://www.googleapis.com/auth/drive"]
     creds = service_account.Credentials.from_service_account_file(
@@ -56,7 +57,7 @@ def arquivar(pdf_path, nome_curso, nome_ficheiro):
     root = os.environ["DRIVE_ROOT_FOLDER_ID"]
     pasta_curso = _garantir_subpasta(service, nome_curso, root)
 
-    media = MediaFileUpload(pdf_path, mimetype="application/pdf")
+    media = MediaIoBaseUpload(io.BytesIO(pdf_bytes), mimetype="application/pdf")
     meta = {"name": nome_ficheiro, "parents": [pasta_curso]}
     f = service.files().create(body=meta, media_body=media,
                                fields="id").execute()
