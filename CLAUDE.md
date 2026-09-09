@@ -48,11 +48,12 @@ Se o `import weasyprint` falhar, é quase sempre isto.
 - `ADMIN_USER` / `ADMIN_PASS` — Basic Auth na zona de coordenação (`/`, criar
   lote, dashboard). FALHA FECHADA: se vazias → essas rotas respondem 503, nunca
   abrem (em local, copia `.env.example` para `.env` e usa `--env-file .env`).
-  `/assinar/<token>`, `/pdf/<token>`, `/health` e `/api/gerar-contrato` ficam
-  fora desta proteção de propósito (token, health check do Render, PDF_API_TOKEN).
-- `PDF_API_TOKEN` — segredo que protege `POST /api/gerar-contrato` (motor de PDF
-  para o dashboard). Sem isto o endpoint dá 503. Igual ao `CONTRATOS_PDF_TOKEN`
-  no dashboard.
+  `/assinar/<token>`, `/pdf/<token>`, `/health`, `/api/gerar-contrato` e
+  `/api/render-pdf` ficam fora desta proteção de propósito (token, health check
+  do Render, PDF_API_TOKEN).
+- `PDF_API_TOKEN` — segredo que protege `POST /api/gerar-contrato` e
+  `POST /api/render-pdf` (motores de PDF do dashboard). Sem isto os endpoints dão
+  503. Igual ao `CONTRATOS_PDF_TOKEN` no dashboard.
 - `DRIVE_ROOT_FOLDER_ID` — arquivo no Drive; sem isto, cai para `data/arquivo/`.
 
 ### Deploy — Render (ativo)
@@ -62,12 +63,24 @@ Alojado no **Render** (free): `https://sportrail-contratos.onrender.com`
 `render`. No plano free adormece após ~15 min (1.º pedido ~30s a acordar).
 (Antes esteve no Railway; o trial expirou → migrado para o Render.)
 
-### Papel duplo desta app
+### Papel triplo desta app
 1. **App autónoma** — fluxo completo (upload → dashboard → assinar → PDF).
-2. **Motor de PDF do dashboard** — `POST /api/gerar-contrato` (protegido por
-   `PDF_API_TOKEN`): recebe `{curso, formando, tipo, assinatura, ip}` e devolve
-   `{pdf_base64, hash, doc_id, data}`. O dashboard (Next) delega-lhe só o PDF,
-   reutilizando as cláusulas jurídicas e o WeasyPrint.
+2. **Motor de contratos do dashboard** — `POST /api/gerar-contrato` (protegido
+   por `PDF_API_TOKEN`): recebe `{curso, formando, tipo, assinatura, ip}` e
+   devolve `{pdf_base64, hash, doc_id, data, tz}`. O dashboard (Next) delega-lhe
+   só o PDF, reutilizando as cláusulas jurídicas e o WeasyPrint.
+3. **Motor de PDF genérico** — `POST /api/render-pdf` (mesmo token): recebe
+   `{html}` já hidratado e devolve `{pdf_base64, hash, doc_id, data, tz}`, com
+   `hash = SHA-256(doc_id|html)`. Serve os documentos do dossier
+   técnico-pedagógico, cujos **templates vivem no dashboard**, junto do modelo de
+   dados que os alimenta — aqui só acontece a parte que precisa de Python.
+
+   O HTML vem de fora e **não é de confiar**: `gerar_pdf_bytes_isolado` corre com
+   `base_url=None` e um `URLFetcher(allowed_protocols={"data"})`. Sem isso, um
+   `<img src="file:///etc/passwd">` transformava o endpoint numa primitiva de
+   leitura de ficheiros do servidor. Tudo o que o documento precise (logótipos,
+   assinaturas) vai embutido em `data:` URI. Há também um limite de 2 MB de HTML
+   (→ 413). O endpoint é **stateless**: quem persiste é o dashboard.
 
 ## Arquitetura
 
@@ -86,6 +99,8 @@ templates/
   assinar.html         página de assinatura (canvas) + consentimento dinâmico
   obrigado.html        confirmação
 static/assinatura_diretora.png   SUBSTITUIR pela assinatura real
+static/fonts/          Bebas Neue + DM Sans (OFL); o Dockerfile instala-as como
+                       fontes de sistema — ver static/fonts/README.md
 verify.py              smoke test do pipeline
 formandos_exemplo.xlsx exemplo de input
 ```
@@ -135,6 +150,8 @@ formandos_exemplo.xlsx exemplo de input
 - [x] Dockerfile para deploy (Pango/Cairo + `$PORT`).
 - [x] Deploy online (Render free): BASE_URL + ADMIN + PDF_API_TOKEN definidos.
 - [x] Endpoint `/api/gerar-contrato` (motor de PDF para o dashboard).
+- [x] Endpoint genérico `/api/render-pdf` (motor de PDF do dossier DGERT).
+- [x] Fontes da marca na imagem (antes todo o PDF saía em DejaVu, sem erro).
 - [ ] Colar o texto jurídico validado por cima dos blocos `[JURISTA]`.
 - [ ] Envio automático de emails com os links (SMTP/SendGrid).
 - [ ] Configurar arquivo real no Google Drive (conta de serviço — ver README).

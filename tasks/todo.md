@@ -1,3 +1,18 @@
+## Sessão 6 — motor de PDF genérico (/api/render-pdf) para o Dossier DGERT
+
+Contexto: o dashboard vai gerar os documentos do dossier técnico-pedagógico. Os
+templates vivem lá (junto do modelo de dados); esta app só acrescenta a peça que
+falta — renderizar HTML arbitrário para PDF, isolada.
+
+- [x] `contract.gerar_pdf_bytes_isolado(html)` — `base_url=None` + URLFetcher só com `data:`
+- [x] `POST /api/render-pdf` (mesmo `X-Api-Token` do /api/gerar-contrato, stateless)
+- [x] Pinar `weasyprint` (a API de URLFetcher mudou; requirements sem pin = deploy imprevisível)
+- [x] Fontes da marca (Bebas Neue + DM Sans) no Dockerfile — a imagem só tinha DejaVu
+- [x] verify.py: rota classificada + render mínimo + isolamento (file:// e https:// bloqueados)
+- [x] CLAUDE.md: documentar o papel triplo desta app
+- [x] Bónus: PNG de teste do verify.py tinha base64 inválido — a assinatura nunca renderizava
+- [x] Verificado: make verify verde + fluxo HTTP (401 sem token, 200 com, 413 acima do limite)
+
 
 ## Sessão 2 — concluído
 - [x] Reestruturar cláusulas em 3 camadas

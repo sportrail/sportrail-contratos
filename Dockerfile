@@ -14,6 +14,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         fontconfig \
     && rm -rf /var/lib/apt/lists/*
 
+# Fontes da marca. Nem Bebas Neue nem DM Sans existem no apt, por isso vão
+# versionadas em static/fonts/ e entram como fontes de SISTEMA. Sem este passo
+# os PDFs saem em DejaVu — sem erro nenhum, que é o pior tipo de falha.
+# Instaladas assim (e não por @font-face com URL) para que a resolução passe
+# pelo fontconfig e não pelo url_fetcher, que o render isolado tranca em `data:`.
+COPY static/fonts/*.ttf /usr/share/fonts/truetype/sportrail/
+RUN fc-cache -f
+
 WORKDIR /app
 
 # Instalar deps primeiro (camada cacheável) e só depois copiar o código.

@@ -3,7 +3,10 @@ uvicorn[standard]
 python-multipart
 jinja2
 openpyxl
-weasyprint
+# Pinado: /api/render-pdf depende de URLFetcher(allowed_protocols=...) para o
+# isolamento. Sem pin, um major novo podia trocar essa API e o isolamento
+# partia-se num redeploy em vez de num commit — que é onde o verify.py o apanha.
+weasyprint==70.0
 pypdf
 # Estado (lotes/formandos) em Postgres + PDFs em Storage:
 supabase

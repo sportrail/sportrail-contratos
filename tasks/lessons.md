@@ -34,3 +34,27 @@
 - Omitir info de livre resolução estende o prazo para 12 meses — risco real.
 - O checkbox de consentimento serve de "pedido expresso" (art. 4.º) para iniciar antes dos 14 dias.
 - Todo o texto legal marcado [JURISTA] para validação.
+
+# Sessão 6 — motor de PDF genérico para o dossier
+- **Renderizar HTML de fora é uma primitiva de leitura de ficheiros até se provar o contrário.**
+  O `/api/gerar-contrato` podia usar `base_url=BASE` porque o HTML era nosso; o `/api/render-pdf`
+  recebe HTML do dashboard e precisa de `base_url=None` + `URLFetcher(allowed_protocols={"data"})`.
+  Sem isso, um `<img src="file:///etc/passwd">` bastava. Está testado no verify.py com um
+  documento hostil — e o teste lê o TEXTO do PDF, não o log, porque o WeasyPrint engole
+  falhas de recurso em silêncio e o render "passa" na mesma.
+- **Dep sem pin + API de segurança = a proteção pode partir-se num redeploy.** O isolamento
+  depende de `URLFetcher(allowed_protocols=...)`; com `weasyprint` sem versão no
+  requirements.txt, um major novo trocava a API sem passar por nenhum commit. Pinado.
+- **O PNG de teste do verify.py tinha base64 inválido (95 chars, padding errado).** O
+  WeasyPrint descartava a imagem sem erro, portanto todos os testes de contrato assinado
+  corriam com a assinatura ausente enquanto diziam estar a testá-la. Lição: um recurso
+  embutido só está testado se algo o for procurar ao output — assumir que "renderizou logo
+  entrou" é falso para imagens.
+- **Os PDFs saíam todos em DejaVu desde sempre.** O `contrato.html` pede "DM Sans", mas a
+  imagem só instalava `fonts-dejavu-core`. Nenhum erro, nenhum aviso — só um PDF fora da
+  marca. Fontes que a marca exige têm de estar na imagem; e como fontes de SISTEMA
+  (fontconfig), não por `@font-face` com URL, senão o url_fetcher isolado bloqueia-as.
+- **O verify.py só cobria o que o contrato usa.** O contrato é de página única e sem
+  numeração, por isso `@page`, `counter(page)` e `position: running()` nunca tinham sido
+  exercitados — e são exatamente o que os documentos do dossier precisam. Testes novos
+  cobrem-nos antes de o dashboard depender deles.

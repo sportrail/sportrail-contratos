@@ -221,6 +221,14 @@ def baixar_pdf(token: str):
 _pdf_api_token = os.environ.get("PDF_API_TOKEN")
 
 
+def _exigir_token_api(x_api_token: Optional[str]):
+    """Falha fechada: sem PDF_API_TOKEN configurado, o motor não abre a ninguém."""
+    if not _pdf_api_token:
+        raise HTTPException(status_code=503, detail="PDF_API_TOKEN não configurado.")
+    if not x_api_token or not secrets.compare_digest(x_api_token, _pdf_api_token):
+        raise HTTPException(status_code=401, detail="Token de API inválido.")
+
+
 class GerarContratoIn(BaseModel):
     curso: dict
     formando: dict
@@ -229,13 +237,15 @@ class GerarContratoIn(BaseModel):
     ip: Optional[str] = None
 
 
+class RenderPdfIn(BaseModel):
+    html: str
+    nome: Optional[str] = None     # só para diagnóstico; não afeta o render
+
+
 @app.post("/api/gerar-contrato")
 def api_gerar_contrato(dados: GerarContratoIn,
                        x_api_token: Optional[str] = Header(default=None)):
-    if not _pdf_api_token:
-        raise HTTPException(status_code=503, detail="PDF_API_TOKEN não configurado.")
-    if not x_api_token or not secrets.compare_digest(x_api_token, _pdf_api_token):
-        raise HTTPException(status_code=401, detail="Token de API inválido.")
+    _exigir_token_api(x_api_token)
 
     doc_id = secrets.token_hex(8).upper()
     aud = contract.construir_auditoria(dados.curso, dados.formando,
@@ -243,6 +253,34 @@ def api_gerar_contrato(dados: GerarContratoIn,
     html = contract.render_html(dados.curso, dados.formando, tipo=dados.tipo,
                                 assinatura_formando=dados.assinatura, auditoria=aud)
     pdf = contract.gerar_pdf_bytes(html)
+    return {
+        "pdf_base64": base64.b64encode(pdf).decode(),
+        "hash": aud["hash"],
+        "doc_id": doc_id,
+        "data": aud["data"],
+        "tz": aud["tz"],
+    }
+
+
+# --- API: render genérico de HTML -> PDF (documentos do dossier) ------------
+# O dashboard é dono dos templates do dossier técnico-pedagógico (vivem junto do
+# modelo de dados que os alimenta) e manda-nos o HTML já hidratado. Aqui só
+# acontece a parte que precisa de Python: o WeasyPrint.
+#
+# Ao contrário de /api/gerar-contrato, o HTML vem de fora e não é de confiar —
+# ver contract.gerar_pdf_bytes_isolado para o porquê do isolamento. Stateless:
+# não escreve no Supabase nem no Drive; quem persiste é o dashboard.
+@app.post("/api/render-pdf")
+def api_render_pdf(dados: RenderPdfIn,
+                   x_api_token: Optional[str] = Header(default=None)):
+    _exigir_token_api(x_api_token)
+
+    doc_id = secrets.token_hex(8).upper()
+    try:
+        pdf = contract.gerar_pdf_bytes_isolado(dados.html)
+    except ValueError as e:
+        raise HTTPException(status_code=413, detail=str(e))
+    aud = contract.construir_auditoria_documento(doc_id, dados.html)
     return {
         "pdf_base64": base64.b64encode(pdf).decode(),
         "hash": aud["hash"],
