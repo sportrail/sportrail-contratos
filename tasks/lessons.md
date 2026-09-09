@@ -60,8 +60,12 @@
   cobrem-nos antes de o dashboard depender deles.
 
 # Sessão 7 — logótipo nos documentos
-- O logótipo entra por ficheiro em `static/` (SVG preferido), lido em `_logo()` e
-  embutido no HTML. Nunca redesenhado: um logótipo traçado à mão é uma marca
-  inventada, e a regra do CLAUDE.md sobre parâmetros de marca é PERGUNTAR.
+- O logótipo entra por ficheiro em `static/` (SVG), lido em `_logo()` e embutido
+  no HTML. Nunca redesenhado: um logótipo traçado à mão é uma marca inventada, e a
+  regra do CLAUDE.md sobre parâmetros de marca é PERGUNTAR.
+- O original é o EPS da pasta da marca no Drive, convertido com
+  `gs -dEPSCrop` + `pdftocairo -svg`: 19 paths, sem fontes embutidas, e o vermelho
+  sai exatamente #ED1C24 — o que confirma que é o ativo verdadeiro e não uma
+  aproximação.
 - O fallback é a wordmark tipográfica que já lá estava. Assim o contrato sai na
   mesma sem o ficheiro, em vez de rebentar ou sair com um buraco.
