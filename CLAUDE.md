@@ -99,6 +99,8 @@ templates/
   assinar.html         página de assinatura (canvas) + consentimento dinâmico
   obrigado.html        confirmação
 static/assinatura_diretora.png   SUBSTITUIR pela assinatura real
+static/logo_sportrail.svg|.png   logótipo do cabeçalho (SVG preferido, vetorial);
+                       sem ficheiro, o contrato cai para a wordmark tipográfica
 static/fonts/          Bebas Neue + DM Sans (OFL); o Dockerfile instala-as como
                        fontes de sistema — ver static/fonts/README.md
 verify.py              smoke test do pipeline
@@ -133,6 +135,9 @@ formandos_exemplo.xlsx exemplo de input
 - Cores: vermelho `#ED1C24` (hover `#c41920`), preto `#0B0A0F`, card `#13121A`,
   border `#222130`, grey `#AAAAAA`, cream `#FAF8F5`.
 - Tipografia: Bebas Neue + DM Sans. Botões `border-radius: 5px`; cards `0`.
+- Logótipo: `static/logo_sportrail.svg` (ou `.png`). Preferir SVG — vetorial, sai
+  nítido em qualquer ampliação do PDF. NUNCA redesenhar o logótipo: se o ficheiro
+  não estiver lá, usar a wordmark tipográfica e PERGUNTAR.
 - NIF Sportrail: 514144785. Tratar o formando por "tu" nos textos.
 - Diretora Pedagógica atual: Liliana Fernandes.
 

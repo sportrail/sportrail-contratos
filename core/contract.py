@@ -23,6 +23,24 @@ def _assinatura_diretora_data_uri():
     return f"data:image/png;base64,{b64}"
 
 
+def _logo():
+    """Logótipo Sportrail para o cabeçalho do contrato, se existir em static/.
+
+    Prefere SVG (vetorial, nítido em qualquer ampliação do PDF); cai para PNG
+    embutido em data-URI. Devolve None se não houver ficheiro — nesse caso o
+    template usa a wordmark tipográfica.
+    """
+    svg = BASE / "static" / "logo_sportrail.svg"
+    if svg.exists():
+        return {"formato": "svg", "conteudo": svg.read_text(encoding="utf-8")}
+    png = BASE / "static" / "logo_sportrail.png"
+    if png.exists():
+        import base64
+        b64 = base64.b64encode(png.read_bytes()).decode()
+        return {"formato": "png", "conteudo": f"data:image/png;base64,{b64}"}
+    return None
+
+
 def render_html(curso, formando, *, tipo="B2C", assinatura_formando=None,
                 auditoria=None):
     """Devolve o HTML do contrato hidratado para a variante B2C ou B2B."""
@@ -36,6 +54,7 @@ def render_html(curso, formando, *, tipo="B2C", assinatura_formando=None,
         tipo=tipo.upper(),
         clausulas=clausulas(online=online, tipo=tipo),
         assinatura_diretora=_assinatura_diretora_data_uri(),
+        logo=_logo(),
         assinatura_formando=assinatura_formando,
         auditoria=auditoria,
         formulario_resolucao=precisa_formulario_resolucao(tipo),
