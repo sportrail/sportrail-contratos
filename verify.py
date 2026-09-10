@@ -222,8 +222,11 @@ def main():
     check(n_b2c > n_b2b, f"B2C tem mais cláusulas que B2B ({n_b2c} vs {n_b2b})")
 
     f = formandos[0]
-    sig = ("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1"
-           "HAwCAAAAC0lEQVR42mNk+M8AAAMCAYAAAA0xZ0AAAAASUVORK5CYII=")
+    # PNG 1x1 real. O valor anterior tinha padding base64 errado (95 chars):
+    # o WeasyPrint descartava a imagem em silêncio, por isso estes testes nunca
+    # chegaram a exercitar a assinatura que dizem estar a testar.
+    sig = ("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ"
+           "AAAACklEQVR4nGMAAQAABQABDQottAAAAABJRU5ErkJggg==")
 
     with tempfile.TemporaryDirectory() as tmp:
         # 3) B2C com auditoria
@@ -262,7 +265,10 @@ def main():
                               for pg in PdfReader(str(p_b2c)).pages)
         check(ENTIDADE["email"] in texto_b2c,
               f"PDF B2C indica o email da entidade ({ENTIDADE['email']})")
-    # 5) Estado
+    # 6) Render genérico (motor de PDF do dossier)
+    verificar_render_isolado()
+
+    # 7) Estado
     verificar_store()
 
     print()
@@ -271,6 +277,97 @@ def main():
         sys.exit(1)
     print("✅ Tudo OK.")
     sys.exit(0)
+
+
+# ---------------------------------------------------------------------------
+# Render genérico isolado (/api/render-pdf — documentos do dossier)
+# ---------------------------------------------------------------------------
+# Aqui o HTML vem do dashboard, não dos nossos templates. Duas coisas têm de se
+# manter verdadeiras a cada commit:
+#   (a) o render não toca no disco nem na rede — senão o endpoint é uma
+#       primitiva de leitura de ficheiros do servidor;
+#   (b) o CSS de paginação (@page, counter(page), cabeçalho corrido) funciona —
+#       é aquilo de que os documentos do dossier dependem e que o contrato,
+#       sendo de página única sem numeração, nunca exercitou.
+
+def verificar_render_isolado():
+    from weasyprint.urls import URLFetcher
+
+    # (a) protocolos: só `data:` passa.
+    fetcher = URLFetcher(allowed_protocols={"data"})
+    bloqueados = []
+    for url in ("file:///etc/passwd", "https://example.com/a.png",
+                "http://169.254.169.254/latest/meta-data/"):
+        try:
+            fetcher.fetch(url)
+        except Exception:
+            bloqueados.append(url)
+    check(len(bloqueados) == 3,
+          "URLFetcher isolado bloqueia file://, https:// e http:// "
+          f"({len(bloqueados)}/3)")
+
+    # `data:` continua a passar — é assim que logótipos e assinaturas entram.
+    px = ("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ"
+          "AAAACklEQVR4nGMAAQAABQABDQottAAAAABJRU5ErkJggg==")
+    try:
+        fetcher.fetch(px)
+        passa_data = True
+    except Exception:
+        passa_data = False
+    check(passa_data, "URLFetcher isolado deixa passar data: URI")
+
+    # E o render completo: um documento hostil sai sem o conteúdo do ficheiro.
+    hostil = ('<html><head><link rel="stylesheet" href="file:///etc/passwd">'
+              '</head><body><p>corpo</p>'
+              '<img src="file:///etc/passwd">'
+              '<img src="static/assinatura_diretora.png">'
+              '</body></html>')
+    with tempfile.TemporaryDirectory() as tmp:
+        alvo = Path(tmp) / "hostil.pdf"
+        alvo.write_bytes(contract.gerar_pdf_bytes_isolado(hostil))
+        texto = "\n".join(pg.extract_text() or "" for pg in PdfReader(str(alvo)).pages)
+    check("root:" not in texto and "corpo" in texto,
+          "Render isolado gera o PDF sem embeber ficheiros locais")
+
+    # Limite de tamanho: um payload absurdo é recusado antes de chegar ao motor.
+    gigante = "<p>x</p>" * (contract.LIMITE_HTML_BYTES // 4)
+    try:
+        contract.gerar_pdf_bytes_isolado(gigante)
+        recusou = False
+    except ValueError:
+        recusou = True
+    check(recusou, "HTML acima do limite é recusado (ValueError → 413)")
+
+    # (b) paginação: numeração e cabeçalho corrido em duas páginas.
+    paginado = ("<html><head><style>"
+                "@page { size: A4; margin: 20mm;"
+                "  @top-center { content: element(topo); }"
+                "  @bottom-right { content: 'Pagina ' counter(page) ' de ' counter(pages); } }"
+                ".topo { position: running(topo); }"
+                ".p2 { break-before: page; }"
+                "</style></head><body>"
+                "<div class='topo'>CABECALHO SPORTRAIL</div>"
+                "<p>primeira</p><p class='p2'>segunda</p>"
+                "</body></html>")
+    with tempfile.TemporaryDirectory() as tmp:
+        alvo = Path(tmp) / "paginado.pdf"
+        alvo.write_bytes(contract.gerar_pdf_bytes_isolado(paginado))
+        paginas = [pg.extract_text() or "" for pg in PdfReader(str(alvo)).pages]
+    check(len(paginas) == 2, f"Render isolado respeita break-before: page ({len(paginas)} págs)")
+    texto = "\n".join(paginas)
+    check("Pagina 1 de 2" in texto and "Pagina 2 de 2" in texto,
+          "counter(page)/counter(pages) numeram as páginas")
+    check(all("CABECALHO SPORTRAIL" in pg for pg in paginas),
+          "Cabeçalho corrido (position: running) repete em todas as páginas")
+
+    # Acentuação: o dossier é todo em português e a imagem só traz DejaVu.
+    with tempfile.TemporaryDirectory() as tmp:
+        alvo = Path(tmp) / "acentos.pdf"
+        alvo.write_bytes(contract.gerar_pdf_bytes_isolado(
+            "<p>Ação de formação — avaliação síncrona</p>"))
+        texto = (PdfReader(str(alvo)).pages[0].extract_text() or "")
+    check("Ação de formação" in texto and "avaliação síncrona" in texto,
+          "Acentuação portuguesa sobrevive ao render")
 
 
 # ---------------------------------------------------------------------------
@@ -285,7 +382,7 @@ ROTAS_COORDENACAO = {("GET", "/"), ("POST", "/criar-lote"),
                      ("GET", "/lote/{lote_id}")}
 ROTAS_ABERTAS = {("GET", "/assinar/{token}"), ("POST", "/assinar/{token}"),
                  ("GET", "/pdf/{token}"), ("GET", "/health"),
-                 ("POST", "/api/gerar-contrato")}
+                 ("POST", "/api/gerar-contrato"), ("POST", "/api/render-pdf")}
 
 
 def verificar_auth():

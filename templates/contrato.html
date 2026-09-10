@@ -9,6 +9,8 @@
   .cabecalho { border-bottom: 2px solid #ED1C24; padding-bottom: 8px; margin-bottom: 18px; }
   .marca { font-size: 20pt; font-weight: 800; letter-spacing: 1px; color: #0B0A0F; }
   .marca span { color: #ED1C24; }
+  /* Logótipo: altura fixa para não depender das dimensões do ficheiro. */
+  .logo, .logo svg, .logo img { height: 13mm; width: auto; display: block; }
   .ent { font-size: 8.5pt; color: #555; margin-top: 2px; }
   h1 { font-size: 14pt; text-align: center; margin: 6px 0 2px; text-transform: uppercase; letter-spacing: .5px; }
   .sub { text-align: center; font-size: 9pt; color: #777; margin-bottom: 16px; }
@@ -33,7 +35,10 @@
 </head>
 <body>
   <div class="cabecalho">
-    <div class="marca">SPORT<span>RAIL</span></div>
+    {% if logo %}
+      {% if logo.formato == "svg" %}<div class="logo">{{ logo.conteudo }}</div>
+      {% else %}<div class="logo"><img src="{{ logo.conteudo }}" alt="Sportrail"></div>{% endif %}
+    {% else %}<div class="marca">SPORT<span>RAIL</span></div>{% endif %}
     <div class="ent">Sportrail, Lda. &middot; NIF {{ entidade.nif }} &middot; Entidade Formadora Certificada DGERT &middot; {{ entidade.morada }}</div>
   </div>
 
@@ -92,7 +97,10 @@
   {% if formulario_resolucao %}
   <div style="page-break-before: always;"></div>
   <div class="cabecalho">
-    <div class="marca">SPORT<span>RAIL</span></div>
+    {% if logo %}
+      {% if logo.formato == "svg" %}<div class="logo">{{ logo.conteudo }}</div>
+      {% else %}<div class="logo"><img src="{{ logo.conteudo }}" alt="Sportrail"></div>{% endif %}
+    {% else %}<div class="marca">SPORT<span>RAIL</span></div>{% endif %}
     <div class="ent">Anexo ao Contrato de Formação &middot; Sportrail, Lda. &middot; NIF {{ entidade.nif }}</div>
   </div>
   <h1>Formulário de Livre Resolução</h1>
