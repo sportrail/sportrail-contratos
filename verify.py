@@ -1,29 +1,32 @@
 """
-Smoke test do pipeline (sem servidor). Corre: `python verify.py` ou `make verify`.
+Smoke test do motor de contratos e de PDF. Corre: `python verify.py` ou `make verify`.
 
-Verifica, ponta-a-ponta e sem rede:
-  1. parsing do Excel de exemplo;
-  2. geração do PDF B2C (com cláusulas de livre resolução + anexo);
-  3. geração do PDF B2B (sem livre resolução);
-  4. trilho de auditoria (hash determinístico) presente;
-  5. nenhum marcador de andaime no texto extraído dos PDFs.
-  5. o store contra um duplo em memória do Supabase, sem rede nem credenciais.
+Verifica, sem servidor e sem rede:
+  1. cláusulas por variante (B2C tem livre resolução, B2B não);
+  2. geração do PDF B2C (com anexo de livre resolução) e B2B (sem);
+  3. trilho de auditoria (hash determinístico) presente;
+  4. nenhum marcador de andaime no texto extraído dos PDF;
+  5. o texto de consentimento, que é o que dá valor jurídico à assinatura;
+  6. o render genérico isolado (/api/render-pdf) e a sua paginação;
+  7. que todas as rotas exigem o PDF_API_TOKEN, exceto o /health.
 
-Sai com código 0 se tudo passar, 1 se algo falhar. Pensado para o Claude Code
-poder validar rapidamente que nada partiu.
+Sai com código 0 se tudo passar, 1 se algo falhar.
 
-Verifica também a Basic Auth da zona de coordenação (require_admin em app.py),
-chamando a função diretamente — sem servidor nem httpx: falha fechada (503 sem
-ADMIN_USER/ADMIN_PASS; 401 sem credenciais ou com credenciais erradas), aceita
-palavra-passe não-ASCII, e só as rotas de coordenação levam a dependência.
+NOTA HISTÓRICA, que vale a pena não repetir: este ficheiro testava também um
+`core/store.py` contra um duplo em memória, e validava as colunas escritas
+contra o `supabase_schema.sql` deste repo. Esse schema nunca chegou a ser
+aplicado — a base de dados tinha (e tem) o do dashboard. Os testes passavam
+todos contra o esquema errado, enquanto em produção nenhum formando conseguia
+assinar. Um teste que valida código contra a sua própria suposição não prova
+nada. O estado saiu daqui; ver `tasks/bug-assinatura.md` no dashboard.
 """
-import re
 import sys
 import tempfile
 from pathlib import Path
 
-from core import excel_parser, contract
-from core.clausulas import ENTIDADE, clausulas
+from core import contract
+from core.clausulas import (ENTIDADE, PRAZO_LIVRE_RESOLUCAO_DIAS,
+                            clausulas, texto_consentimento)
 from pypdf import PdfReader
 
 BASE = Path(__file__).resolve().parent
@@ -37,168 +40,6 @@ def check(cond, msg):
         falhas.append(msg)
 
 
-# ---------------------------------------------------------------------------
-# Duplo em memória do supabase-py
-# ---------------------------------------------------------------------------
-# Implementa só o que o core/store.py usa. Existe para o store ser testável
-# sem rede nem credenciais: o que interessa verificar aqui é que as formas de
-# retorno continuam a ser as que o app.py e os templates esperam, e que as
-# colunas escritas existem mesmo no supabase_schema.sql.
-
-class _Resposta:
-    def __init__(self, data):
-        self.data = data
-
-
-class _Query:
-    def __init__(self, linhas):
-        self._linhas = linhas          # lista partilhada = a "tabela"
-        self._predicados = []
-        self._ordem = None
-        self._single = False
-        self._op = "select"
-        self._payload = None
-
-    def select(self, *_args, **_kw):
-        return self
-
-    def insert(self, dados):
-        self._op, self._payload = "insert", dados
-        return self
-
-    def update(self, dados):
-        self._op, self._payload = "update", dados
-        return self
-
-    def eq(self, campo, valor):
-        self._predicados.append(lambda l: l.get(campo) == valor)
-        return self
-
-    def in_(self, campo, valores):
-        conjunto = set(valores)
-        self._predicados.append(lambda l: l.get(campo) in conjunto)
-        return self
-
-    def order(self, campo, desc=False):
-        self._ordem = (campo, desc)
-        return self
-
-    def maybe_single(self):
-        self._single = True
-        return self
-
-    def _correspondentes(self):
-        return [l for l in self._linhas if all(p(l) for p in self._predicados)]
-
-    def execute(self):
-        if self._op == "insert":
-            novas = (self._payload if isinstance(self._payload, list)
-                     else [self._payload])
-            self._linhas.extend(dict(n) for n in novas)
-            return _Resposta([dict(n) for n in novas])
-        if self._op == "update":
-            alteradas = self._correspondentes()
-            for linha in alteradas:
-                linha.update(self._payload)
-            return _Resposta([dict(l) for l in alteradas])
-
-        encontradas = self._correspondentes()
-        if self._ordem:
-            campo, desc = self._ordem
-            encontradas = sorted(encontradas, key=lambda l: l.get(campo),
-                                 reverse=desc)
-        if self._single:
-            return _Resposta(dict(encontradas[0]) if encontradas else None)
-        return _Resposta([dict(l) for l in encontradas])
-
-
-class FakeSupabase:
-    def __init__(self):
-        self.tabelas = {}
-
-    def table(self, nome):
-        return _Query(self.tabelas.setdefault(nome, []))
-
-
-def _colunas_do_schema(tabela):
-    """Lê as colunas declaradas no supabase_schema.sql para a tabela dada."""
-    sql = (BASE / "supabase_schema.sql").read_text(encoding="utf-8")
-    corpo = re.search(rf"create table if not exists {tabela}\s*\((.*?)\n\);",
-                      sql, re.S | re.I)
-    if not corpo:
-        return set()
-    colunas = set()
-    for linha in corpo.group(1).splitlines():
-        linha = linha.strip()
-        if not linha or linha.startswith("--"):
-            continue
-        nome = linha.split()[0]
-        if nome.lower() not in ("primary", "foreign", "constraint", "unique"):
-            colunas.add(nome)
-    return colunas
-
-
-def verificar_store():
-    """O store contra o duplo: formas de retorno e colunas alinhadas ao schema."""
-    from core import store
-
-    fake = FakeSupabase()
-    original = store.client
-    store.client = lambda: fake
-    try:
-        curso = {"nome": "Curso X", "modalidade": "Online", "duracao": "12 horas",
-                 "data_inicio": "22/09/2026", "data_conclusao": "08/10/2026"}
-        formandos = [
-            {"nome": "Ana", "email": "ana@x.pt", "nif": "111"},
-            {"nome": "Bruno", "email": "bruno@x.pt", "tipo_contrato": "b2b"},
-        ]
-        lote_id = store.criar_lote(curso, formandos, tipo_default="B2C")
-
-        # As colunas escritas têm de existir no schema, senão o insert só
-        # rebenta em produção, contra o Postgres a sério.
-        for tabela in ("contract_batches", "contract_signers"):
-            declaradas = _colunas_do_schema(tabela)
-            escritas = set().union(*(set(l) for l in fake.tabelas[tabela]))
-            check(escritas <= declaradas,
-                  f"{tabela}: colunas escritas existem no schema"
-                  + (f" (a mais: {sorted(escritas - declaradas)})"
-                     if escritas - declaradas else ""))
-
-        lote = store.obter_lote(lote_id)
-        check(set(lote) == {"curso", "criado_em", "formandos"},
-              "obter_lote devolve {curso, criado_em, formandos}")
-        tokens = list(lote["formandos"])
-        check([lote["formandos"][t]["nome"] for t in tokens] == ["Ana", "Bruno"],
-              "ordem do Excel preservada")
-        check(lote["formandos"][tokens[0]]["tipo_contrato"] == "B2C",
-              "tipo_default do lote aplicado a quem não o traz do Excel")
-        check(lote["formandos"][tokens[1]]["tipo_contrato"] == "B2B",
-              "tipo do Excel tem precedência e é normalizado para maiúsculas")
-        check(store.obter_lote("nao-existe") is None,
-              "lote inexistente devolve None")
-
-        lote_id2, _, f = store.obter_formando(tokens[0])
-        check(lote_id2 == lote_id and f["nome"] == "Ana",
-              "obter_formando devolve (lote_id, lote, formando)")
-        check(store.obter_formando("token-invalido") == (None, None, None),
-              "token inválido devolve (None, None, None)")
-
-        store.marcar_assinado(tokens[0], assinado_em="2026-09-08", ip="1.2.3.4",
-                              hash="a" * 64, doc_id="DOC1",
-                              pdf_path=f"{lote_id}/contrato.pdf",
-                              drive_file_id="supabase::x")
-        _, _, assinado = store.obter_formando(tokens[0])
-        check(assinado["estado"] == "assinado"
-              and assinado["pdf_path"] == f"{lote_id}/contrato.pdf",
-              "marcar_assinado persiste estado e caminho do PDF")
-
-        lotes = store.todos_os_lotes()
-        check(list(lotes) == [lote_id] and set(lotes[lote_id]["formandos"]) == set(tokens),
-              "todos_os_lotes agrupa os formandos pelo lote certo")
-    finally:
-        store.client = original
-
-
 def main():
     # 0) Config da entidade que sai impressa no contrato
     check(bool(ENTIDADE.get("email")),
@@ -209,19 +50,20 @@ def main():
              "duracao": "12 horas", "data_inicio": "22/09/2026",
              "data_conclusao": "08/10/2026"}
 
-    # Basic Auth da zona de coordenação (independente do pipeline de PDF)
-    verificar_auth()
+    # Autenticação dos endpoints (independente do pipeline de PDF)
+    verificar_auth_api()
 
-    # 1) Excel
-    formandos = excel_parser.ler_formandos(BASE / "formandos_exemplo.xlsx")
-    check(len(formandos) >= 2, f"Excel lido ({len(formandos)} formandos)")
-
-    # 2) Cláusulas por variante
+    # 1) Cláusulas por variante
     n_b2c = len(clausulas(online=True, tipo="B2C"))
     n_b2b = len(clausulas(online=True, tipo="B2B"))
     check(n_b2c > n_b2b, f"B2C tem mais cláusulas que B2B ({n_b2c} vs {n_b2b})")
 
-    f = formandos[0]
+    # Formando de referência. Era lido do formandos_exemplo.xlsx, que saiu com
+    # o excel_parser: quem lê Excel agora é o dashboard. Aqui basta a forma que
+    # o render_html espera.
+    f = {"nome": "Ana Teste", "email": "ana@exemplo.pt", "nif": "123456789",
+         "valor_pago": "47", "morada": "Rua do Exemplo, 1, Lisboa"}
+
     # PNG 1x1 real. O valor anterior tinha padding base64 errado (95 chars):
     # o WeasyPrint descartava a imagem em silêncio, por isso estes testes nunca
     # chegaram a exercitar a assinatura que dizem estar a testar.
@@ -265,11 +107,11 @@ def main():
                               for pg in PdfReader(str(p_b2c)).pages)
         check(ENTIDADE["email"] in texto_b2c,
               f"PDF B2C indica o email da entidade ({ENTIDADE['email']})")
-    # 6) Render genérico (motor de PDF do dossier)
-    verificar_render_isolado()
+    # 6) Consentimento — é o que dá valor jurídico à assinatura eletrónica
+    verificar_consentimento()
 
-    # 7) Estado
-    verificar_store()
+    # 7) Render genérico (motor de PDF do dossier)
+    verificar_render_isolado()
 
     print()
     if falhas:
@@ -371,91 +213,97 @@ def verificar_render_isolado():
 
 
 # ---------------------------------------------------------------------------
-# Basic Auth da zona de coordenação
+# Consentimento
 # ---------------------------------------------------------------------------
-# require_admin tem de falhar FECHADO: sem ADMIN_USER/ADMIN_PASS a zona de
-# coordenação (nome, NIF, morada, email dos formandos + links de assinatura)
-# responde 503, nunca abre. Chamamos a função diretamente com credenciais
-# falsas — sem subir servidor nem depender de httpx.
+# É a declaração que o formando aceita ao assinar, e o que dá à assinatura
+# eletrónica simples (eIDAS) o valor de uma manuscrita. Em B2C é também o
+# pedido expresso do art. 4.º do DL 24/2014 para começar a formação antes de
+# terminado o prazo de livre resolução — se esse texto desaparecer, começar a
+# formação nesse prazo deixa de estar coberto.
 
-ROTAS_COORDENACAO = {("GET", "/"), ("POST", "/criar-lote"),
-                     ("GET", "/lote/{lote_id}")}
-ROTAS_ABERTAS = {("GET", "/assinar/{token}"), ("POST", "/assinar/{token}"),
-                 ("GET", "/pdf/{token}"), ("GET", "/health"),
-                 ("POST", "/api/gerar-contrato"), ("POST", "/api/render-pdf"),
-                 ("POST", "/api/contrato-preview")}
+def verificar_consentimento():
+    b2c = texto_consentimento("B2C")
+    b2b = texto_consentimento("B2B")
+    check("assinatura eletrónica" in b2c and "assinatura eletrónica" in b2b,
+          "Ambas as variantes declaram a assinatura eletrónica")
+    check(f"{PRAZO_LIVRE_RESOLUCAO_DIAS} dias" in b2c,
+          f"B2C cita o prazo de livre resolução ({PRAZO_LIVRE_RESOLUCAO_DIAS} dias)")
+    check("Solicito expressamente" in b2c,
+          "B2C traz o pedido expresso do art. 4.º (início antes dos 14 dias)")
+    check("livre resolu" not in b2b.lower(),
+          "B2B não menciona livre resolução")
+    check("representação da entidade" in b2b,
+          "B2B assina em representação da entidade adquirente")
+    check(texto_consentimento("b2c") == b2c,
+          "tipo em minúsculas dá o mesmo texto (normalização)")
 
 
-def verificar_auth():
+# ---------------------------------------------------------------------------
+# Autenticação dos endpoints
+# ---------------------------------------------------------------------------
+# Os três /api/* geram documentos com dados pessoais a partir do que lhes
+# mandam. Têm de falhar FECHADOS: sem PDF_API_TOKEN configurado respondem 503,
+# nunca abrem. O /health fica aberto de propósito (protegê-lo marcava o serviço
+# como não saudável no Render).
+#
+# Antes daqui testava-se a Basic Auth da zona de coordenação. Essa zona saiu:
+# o upload, o dashboard do lote e a página de assinatura vivem no
+# sportrail-dashboard, que tem sessão a sério em vez de um user/password
+# partilhado por env.
+
+ROTAS_API = {("POST", "/api/contrato-preview"), ("POST", "/api/gerar-contrato"),
+             ("POST", "/api/render-pdf")}
+ROTAS_ABERTAS = {("GET", "/health")}
+
+
+def verificar_auth_api():
     import os
-    from fastapi import HTTPException
-    from fastapi.routing import APIRoute
-    from fastapi.security import HTTPBasicCredentials
     import app as webapp
+    from fastapi.routing import APIRoute
 
-    def chamar(user, password, env):
-        """Corre require_admin com este ambiente; devolve a exceção ou None."""
-        guardado = {k: os.environ.pop(k, None) for k in ("ADMIN_USER", "ADMIN_PASS")}
-        os.environ.update(env)
-        creds = (None if user is None
-                 else HTTPBasicCredentials(username=user, password=password))
+    # Wiring: nenhuma rota a mais, nenhuma a menos.
+    rotas = set()
+    for rota in webapp.app.routes:
+        if isinstance(rota, APIRoute):
+            for metodo in rota.methods:
+                rotas.add((metodo, rota.path))
+    inesperadas = sorted(rotas - ROTAS_API - ROTAS_ABERTAS)
+    check(not inesperadas,
+          "Nenhuma rota por classificar"
+          + (f" — inesperadas: {inesperadas}" if inesperadas else ""))
+    em_falta = sorted((ROTAS_API | ROTAS_ABERTAS) - rotas)
+    check(not em_falta,
+          "Todas as rotas esperadas existem"
+          + (f" — em falta: {em_falta}" if em_falta else ""))
+
+    def com_token(valor, header):
+        """Corre _exigir_token_api com este PDF_API_TOKEN; devolve a exceção ou None."""
+        guardado = os.environ.pop("PDF_API_TOKEN", None)
+        original = webapp._pdf_api_token
+        webapp._pdf_api_token = valor
         try:
-            webapp.require_admin(creds)
+            webapp._exigir_token_api(header)
             return None
-        except Exception as e:      # HTTPException esperada; TypeError seria bug
+        except Exception as e:
             return e
         finally:
-            for k, v in guardado.items():
-                if v is None:
-                    os.environ.pop(k, None)
-                else:
-                    os.environ[k] = v
+            webapp._pdf_api_token = original
+            if guardado is not None:
+                os.environ["PDF_API_TOKEN"] = guardado
 
     def status(e):
         return getattr(e, "status_code", None)
 
-    # Palavra-passe com não-ASCII de propósito: compare_digest(str, str) rebenta
-    # com TypeError nestes casos — a comparação tem de ser em bytes.
-    user, password = "sportrail", "pálavra-çã€"
-    env = {"ADMIN_USER": user, "ADMIN_PASS": password}
-
-    e = chamar(user, password, {})
-    check(status(e) == 503, "Sem ADMIN_USER/ADMIN_PASS → 503 (falha fechada, nunca aberta)")
-    e = chamar(user, password, {"ADMIN_USER": user})
-    check(status(e) == 503, "Só ADMIN_USER definido → 503")
-
-    e = chamar(None, None, env)
-    challenge = getattr(e, "headers", None) or {}
-    check(status(e) == 401 and challenge.get("WWW-Authenticate", "").startswith('Basic realm="'),
-          "Com env vars e sem credenciais → 401 + WWW-Authenticate: Basic realm=...")
-    e = chamar(user, "errada", env)
-    check(status(e) == 401 and isinstance(e, HTTPException),
-          "Palavra-passe errada → 401")
-    e = chamar("outro", password, env)
-    check(status(e) == 401 and isinstance(e, HTTPException),
-          "Utilizador errado → 401")
-    e = chamar(user, password, env)
-    check(e is None, "Credenciais certas (com não-ASCII) → passa")
-
-    # Wiring: quais rotas levam mesmo a dependência. Uma rota em falta dá None,
-    # por isso o teste acusa também se alguém a renomear.
-    rotas = {}
-    for rota in webapp.app.routes:
-        if isinstance(rota, APIRoute):
-            protegida = any(d.call is webapp.require_admin
-                            for d in rota.dependant.dependencies)
-            for metodo in rota.methods:
-                rotas[(metodo, rota.path)] = protegida
-    for metodo, caminho in sorted(ROTAS_COORDENACAO):
-        check(rotas.get((metodo, caminho)) is True,
-              f"{metodo} {caminho} exige require_admin")
-    for metodo, caminho in sorted(ROTAS_ABERTAS):
-        check(rotas.get((metodo, caminho)) is False,
-              f"{metodo} {caminho} aberta (sem require_admin)")
-    por_classificar = sorted(set(rotas) - ROTAS_COORDENACAO - ROTAS_ABERTAS)
-    check(not por_classificar,
-          "Todas as rotas classificadas (coordenação ou aberta)"
-          + (f" — por classificar: {por_classificar}" if por_classificar else ""))
+    check(status(com_token(None, "seja-o-que-for")) == 503,
+          "Sem PDF_API_TOKEN configurado → 503 (falha fechada, nunca aberta)")
+    check(status(com_token("", "seja-o-que-for")) == 503,
+          "PDF_API_TOKEN vazio → 503")
+    check(status(com_token("segredo", None)) == 401,
+          "Com segredo configurado e sem header → 401")
+    check(status(com_token("segredo", "errado")) == 401,
+          "Header errado → 401")
+    check(com_token("segredo", "segredo") is None,
+          "Header certo → passa")
 
 
 if __name__ == "__main__":

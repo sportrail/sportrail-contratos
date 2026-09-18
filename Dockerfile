@@ -1,4 +1,4 @@
-# Imagem de produção — Sportrail Contratos de Formação.
+# Imagem de produção — Sportrail, motor de contratos e de PDF.
 # Python 3.12 (wheels estáveis para weasyprint/fastapi/pydantic).
 FROM python:3.12-slim
 
@@ -30,10 +30,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-# Railway/Render injetam a porta em $PORT; localmente cai para 8000.
-# --proxy-headers + --forwarded-allow-ips: atrás do proxy da plataforma, faz
-# com que os links de assinatura saiam com o esquema certo (https), mesmo sem
-# BASE_URL definido.
+# O Render injeta a porta em $PORT; localmente cai para 8000.
+# --proxy-headers + --forwarded-allow-ips: atrás do proxy da plataforma, para
+# o esquema e o IP de origem chegarem corretos ao uvicorn. (Serviam também os
+# links de assinatura, que saíram deste repo com o BASE_URL.)
 ENV PORT=8000
 EXPOSE 8000
 CMD ["sh", "-c", "uvicorn app:app --host 0.0.0.0 --port ${PORT:-8000} --proxy-headers --forwarded-allow-ips='*'"]
