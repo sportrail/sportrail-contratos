@@ -69,3 +69,33 @@
   aproximação.
 - O fallback é a wordmark tipográfica que já lá estava. Assim o contrato sai na
   mesma sem o ficheiro, em vez de rebentar ou sair com um buraco.
+
+# Sessão 8 — a minuta aprovada e o export real
+- **O texto legal que estava no repo era rascunho inventado.** Havia um comentário a
+  dizer "dado como validado pela Sportrail" por cima de cláusulas que ninguém tinha
+  aprovado. Quando o documento real apareceu, não coincidia em nada: outra estrutura,
+  outra identificação das partes (documento de identificação, não NIF), outro fecho.
+  Lição: "validado" num comentário não é validação; a fonte tem de ser um ficheiro que
+  se possa apontar.
+- **Um documento aprovado reproduz-se com os defeitos.** A minuta numera a Cláusula 3.ª
+  com os pontos "3." e "4." e salta da Cláusula 8.ª para a 10.ª. A tentação é arrumar
+  isso. Arrumar era alterar o que a DGERT aprovou — e ninguém dava por ela. Ficaram
+  como estão, com um teste que FALHA se alguém os "corrigir" sem passar pelo jurista.
+- **Acrescentar ao aprovado faz-se por fora.** A livre resolução (DL 24/2014) não está
+  na minuta e é obrigatória para consumidores. Meter cláusulas no articulado resolvia o
+  problema jurídico e criava outro: o contrato deixava de ser o aprovado. Foi para
+  adenda, depois das assinaturas, e o rodapé "V1. 2024" não a acompanha.
+- **O parser rejeitava o ficheiro real desde sempre.** O export do WooCommerce não tem
+  coluna `nome` — tem `First Name (Billing)` e `Last Name (Billing)`. O parser exigia
+  `nome` e `email` e dava "o Excel tem de ter as colunas nome e email" ao ficheiro que
+  é o input verdadeiro do sistema. Escreveu-se um export sintético com a forma exata do
+  real no verify.py; o exemplo à mão que lá estava validava um formato que ninguém usa.
+- **Um número lido de Excel não é uma string.** `str(233385169.0)` dá "233385169.0" num
+  NIF, e `str(150)` dá "€ 150" num valor de contrato. Ambos saíam impressos assim.
+- **Os testes de guarda pagaram-se todos nesta sessão.** As rotas novas acusaram "por
+  classificar" no teste de auth, as colunas novas acusaram "a mais" no teste de schema
+  (o leitor só via `create table`, não os `alter table` das migrações) e o `origem` novo
+  acusou na forma de retorno do `obter_lote`. Quatro falhas, quatro coisas reais.
+- **O backfill não pode fechar linhas com assinaturas inventadas.** Quem já assinou em
+  papel fica em `arquivado_papel`: sem assinatura, sem PDF, sem hash. Há um teste a
+  garantir que continua assim — é a única parte disto onde um atalho seria falsificação.

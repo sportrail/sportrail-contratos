@@ -49,3 +49,38 @@ falta — renderizar HTML arbitrário para PDF, isolada.
 - [x] apt no runner = mesma lista do Dockerfile (+ shared-mime-info); sem segredos
 - [x] Validado localmente com o verify.py de main, do PR #1 e do PR #2
 - [x] Confirmar job verde no separador Checks do PR (#3, run 1: success)
+
+## Sessão 8 — minuta aprovada pela DGERT + export real do WooCommerce + backfill
+
+Entraram dois ficheiros do Bruno: a **minuta do contrato aprovada pela DGERT** no
+pedido de certificação, e o **export de formandos tal como sai do WooCommerce**
+(vigente desde 2024). O texto legal que estava em `clausulas.py` era rascunho
+inventado; o parser de Excel não conseguia sequer ler o export real.
+
+### A. Cláusulas — passar a minuta aprovada a fonte de verdade
+- [x] `core/clausulas.py`: corpo do contrato = texto da minuta V1.2024, literal
+- [x] Livre resolução (B2C) sai do corpo aprovado e passa a **adenda** depois das
+      assinaturas — acrescentar cláusulas ao corpo alterava o que a DGERT aprovou
+- [x] Preservar as anomalias de numeração da minuta (Cl. 3 começa em "3.", não há
+      Cl. 9.ª) e documentar; corrigi-las é decisão do jurista, não de quem programa
+- [x] `templates/contrato.html`: preâmbulo, alíneas a)–g), fecho "local, data",
+      rodapé "Contrato de Formação Sportrail V1. 2024 — x/y"
+
+### B. Excel — export real do WooCommerce
+- [x] Nome composto de `First Name (Billing)` + `Last Name (Billing)`
+- [x] Novas colunas: `CC` (documento de identificação — é o que a minuta pede),
+      `cedula`, `clube`, `Product Name`, `Order Total Amount`
+- [x] `clube` preenchido NÃO decide B2B automaticamente (decisão do jurista)
+- [x] Manter compatibilidade com o formato antigo (`nome`, `email`, ...)
+
+### C. Backfill de todas as formações
+- [x] Um export com várias formações → um lote por `Product Name`
+- [x] Catálogo de cursos (modalidade/duração/datas) — o WooCommerce não os tem;
+      pedidos ao coordenador no preview, nunca inventados
+- [x] Estado `arquivado_papel`: quem já assinou em papel fica registado sem
+      fabricar assinatura nenhuma
+- [x] `origem` no lote (normal | backfill)
+
+### D. Verificação
+- [x] `verify.py`: fidelidade à minuta, parsing WooCommerce, agrupamento, adenda
+- [ ] Dashboard: mesmo parser (`excel.ts`), migração das colunas novas, UI backfill

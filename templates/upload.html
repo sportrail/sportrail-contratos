@@ -58,9 +58,23 @@
 
     <label>Excel dos formandos (.xlsx)</label>
     <input type="file" name="excel" accept=".xlsx" required>
-    <div class="hint">Colunas obrigatórias: <b>nome</b>, <b>email</b>. Opcionais: nif, valor_pago, morada, tipo_contrato.</div>
+    <div class="hint">Aceita o export do WooCommerce tal como sai (<b>First Name (Billing)</b>,
+      <b>Last Name (Billing)</b>, <b>Email (Billing)</b>, CC, NIF, cedula, clube, Product Name,
+      Order Total Amount) ou uma folha manual com <b>nome</b> e <b>email</b>.</div>
 
     <button type="submit">Criar lote e gerar links →</button>
+  </form>
+
+  <form action="/backfill/preview" method="post" enctype="multipart/form-data">
+    <h1 style="margin-top:0">Backfill do histórico</h1>
+    <p class="sub" style="margin-bottom:0">Um export com várias formações (coluna
+      <b>Product Name</b>) &rarr; um lote por ação. Os dados que o WooCommerce não tem
+      (modalidade, duração, datas) são pedidos no passo seguinte.</p>
+
+    <label>Export do WooCommerce (.xlsx)</label>
+    <input type="file" name="excel" accept=".xlsx" required>
+
+    <button type="submit">Ver ações encontradas →</button>
   </form>
 
   {% if lotes %}

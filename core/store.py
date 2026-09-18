@@ -17,10 +17,22 @@ from .db import client
 
 # Colunas que descrevem o formando (o resto da linha é metadados internos).
 _CAMPOS_FORMANDO = (
-    "nome", "nif", "email", "valor_pago", "morada", "tipo_contrato",
+    "nome", "nif", "email", "doc_identificacao", "validade_documento",
+    "cedula", "clube", "valor_pago", "morada", "concelho", "distrito",
+    "tipo_contrato",
     "estado", "assinado_em", "ip", "hash", "doc_id", "pdf_path",
     "drive_file_id",
 )
+
+# Estados de um formando:
+#   pendente        — link enviado, à espera de assinatura
+#   assinado        — assinou eletronicamente aqui, com trilho de auditoria
+#   arquivado_papel — já tinha assinado em papel antes do sistema existir.
+#                     Registado sem assinatura nenhuma: fabricar uma imagem de
+#                     assinatura para "fechar" uma linha do backfill seria
+#                     falsificar o documento que o trilho de auditoria existe
+#                     precisamente para tornar credível.
+ESTADOS = ("pendente", "assinado", "arquivado_papel")
 
 
 def _linha_para_formando(linha):
@@ -32,11 +44,14 @@ def _montar_lote(batch, linhas):
     return {
         "curso": batch["curso"],
         "criado_em": batch["criado_em"],
+        "origem": batch.get("origem", "normal"),
         "formandos": {l["token"]: _linha_para_formando(l) for l in linhas},
     }
 
 
-def criar_lote(curso, formandos, tipo_default="B2C"):
+def criar_lote(curso, formandos, tipo_default="B2C", origem="normal"):
+    """Cria um lote. `origem`: 'normal' (curso a começar) ou 'backfill'
+    (formação já dada, importada do histórico do WooCommerce)."""
     sb = client()
     lote_id = secrets.token_urlsafe(6)
 
@@ -44,6 +59,7 @@ def criar_lote(curso, formandos, tipo_default="B2C"):
         "id": lote_id,
         "curso": curso,
         "tipo_default": tipo_default.upper(),
+        "origem": origem,
         "criado_em": datetime.datetime.now(datetime.timezone.utc).isoformat(),
     }).execute()
 
@@ -57,8 +73,14 @@ def criar_lote(curso, formandos, tipo_default="B2C"):
             "nome": f["nome"],
             "nif": f.get("nif") or None,
             "email": f["email"],
+            "doc_identificacao": f.get("doc_identificacao") or None,
+            "validade_documento": f.get("validade_documento") or None,
+            "cedula": f.get("cedula") or None,
+            "clube": f.get("clube") or None,
             "valor_pago": f.get("valor_pago") or None,
             "morada": f.get("morada") or None,
+            "concelho": f.get("concelho") or None,
+            "distrito": f.get("distrito") or None,
             "tipo_contrato": tipo,
             "estado": "pendente",
             "ordem": ordem,
@@ -70,7 +92,7 @@ def criar_lote(curso, formandos, tipo_default="B2C"):
 def obter_lote(lote_id):
     sb = client()
     batch = (sb.table("contract_batches")
-               .select("id, curso, criado_em")
+               .select("id, curso, criado_em, origem")
                .eq("id", lote_id)
                .maybe_single()
                .execute())
@@ -113,7 +135,7 @@ def todos_os_lotes():
     """Dois queries e agrupamento em memória — a alternativa era N+1."""
     sb = client()
     batches = (sb.table("contract_batches")
-                 .select("id, curso, criado_em")
+                 .select("id, curso, criado_em, origem")
                  .order("criado_em", desc=True)
                  .execute())
     if not batches.data:
@@ -133,3 +155,18 @@ def todos_os_lotes():
         b["id"]: _montar_lote(b, por_lote.get(b["id"], []))
         for b in batches.data
     }
+
+
+def marcar_arquivado_papel(token, nota=None):
+    """Regista que este formando já tinha assinado o contrato em papel.
+
+    Não gera PDF nem assinatura: o contrato de papel é que é o documento. Isto
+    só fecha a linha no backfill, para o coordenador saber a quem ainda falta
+    pedir assinatura eletrónica.
+    """
+    sb = client()
+    resposta = (sb.table("contract_signers")
+                  .update({"estado": "arquivado_papel", "assinado_em": nota})
+                  .eq("token", token)
+                  .execute())
+    return bool(resposta.data)

@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sportrail · Backfill de formações</title>
+<style>
+  :root{--red:#ED1C24;--ink:#0B0A0F;--card:#13121A;--mut:#AAAAAA;--cream:#FAF8F5;--bd:#222130;}
+  *{box-sizing:border-box;font-family:'DM Sans',system-ui,Arial,sans-serif;}
+  body{margin:0;background:var(--ink);color:var(--cream);}
+  .wrap{max-width:860px;margin:0 auto;padding:32px 20px;}
+  .brand{font-size:28px;font-weight:800;letter-spacing:1px;}
+  .brand span{color:var(--red);}
+  h1{font-size:20px;margin:22px 0 4px;}
+  p.sub{color:var(--mut);margin-top:0;font-size:14px;}
+  .acao{background:var(--card);border:1px solid var(--bd);border-radius:0;padding:18px;margin-top:14px;}
+  .acao h2{font-size:16px;margin:0 0 2px;}
+  .meta{color:var(--mut);font-size:12.5px;margin-bottom:10px;}
+  .meta b{color:var(--cream);}
+  label{display:block;font-size:13px;color:var(--mut);margin:12px 0 5px;}
+  input,select{width:100%;padding:10px 12px;border:1px solid #2a2933;border-radius:5px;
+    background:#0e0d14;color:var(--cream);font-size:14px;}
+  .row{display:flex;gap:12px;flex-wrap:wrap;}.row>div{flex:1;min-width:150px;}
+  button{margin-top:22px;width:100%;background:var(--red);color:#fff;border:0;
+    border-radius:5px;padding:13px;font-size:15px;font-weight:700;cursor:pointer;}
+  .check{display:flex;align-items:center;gap:8px;font-size:13.5px;color:var(--cream);}
+  .check input{width:auto;}
+  .erro{background:#2a0f10;border-left:3px solid var(--red);padding:12px 14px;font-size:14px;}
+  .aviso{border-left:3px solid var(--red);background:#1a1016;padding:12px 14px;font-size:13px;
+    color:var(--mut);margin-top:16px;line-height:1.55;}
+  .aviso b{color:var(--cream);}
+  a.voltar{color:var(--red);text-decoration:none;font-size:13px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="brand">SPORT<span>RAIL</span></div>
+  <h1>Backfill — importar o histórico de formações</h1>
+  <p class="sub">Um export do WooCommerce pode cobrir vários cursos. Cada <b>Product Name</b> vira um lote.</p>
+
+  {% if erro %}<div class="erro">{{ erro }}</div>
+  <p style="margin-top:16px"><a class="voltar" href="/">← voltar</a></p>{% endif %}
+
+  {% if acoes %}
+  <p class="sub"><b>{{ total }}</b> formandos em <b>{{ acoes|length }}</b> ação(ões) de formação.</p>
+
+  <form action="/backfill/criar" method="post">
+    <input type="hidden" name="payload" value="{{ payload }}">
+
+    {% for a in acoes %}
+    <div class="acao">
+      <label class="check">
+        <input type="checkbox" name="incluir_{{ loop.index0 }}" checked>
+        <span>importar esta ação</span>
+      </label>
+      <h2 style="margin-top:10px">{{ a.nome }}</h2>
+      <div class="meta">
+        <b>{{ a.n }}</b> formandos
+        {% if a.com_clube %}&middot; {{ a.com_clube }} indicam clube{% endif %}
+        {% if a.sem_doc %}&middot; {{ a.sem_doc }} sem n.º de documento{% endif %}
+        {% if a.conhecido %}&middot; dados reaproveitados de um lote anterior{% endif %}
+      </div>
+
+      <label>Nome da ação no contrato</label>
+      <input name="nome_{{ loop.index0 }}" value="{{ a.nome }}" required>
+
+      <label>Modalidade</label>
+      <select name="modalidade_{{ loop.index0 }}">
+        {% set m = (a.conhecido.modalidade if a.conhecido else "") %}
+        <option {% if m.startswith("Online") or not m %}selected{% endif %}>Online (formação a distância)</option>
+        <option {% if m == "Presencial" %}selected{% endif %}>Presencial</option>
+        <option {% if m.startswith("Misto") %}selected{% endif %}>Misto (b-learning)</option>
+      </select>
+
+      <div class="row">
+        <div><label>Duração</label>
+          <input name="duracao_{{ loop.index0 }}" required placeholder="12 horas"
+                 value="{{ a.conhecido.duracao if a.conhecido else '' }}"></div>
+        <div><label>Data de início</label>
+          <input name="data_inicio_{{ loop.index0 }}" required placeholder="22/09/2024"
+                 value="{{ a.conhecido.data_inicio if a.conhecido else '' }}"></div>
+        <div><label>Data de conclusão</label>
+          <input name="data_conclusao_{{ loop.index0 }}" required placeholder="08/10/2024"
+                 value="{{ a.conhecido.data_conclusao if a.conhecido else '' }}"></div>
+      </div>
+
+      <label>Tipo de contrato (default do lote)</label>
+      <select name="tipo_{{ loop.index0 }}">
+        <option value="B2C">B2C — formando particular (com adenda de livre resolução)</option>
+        <option value="B2B">B2B — empresa/clube adquirente (sem adenda)</option>
+      </select>
+    </div>
+    {% endfor %}
+
+    <div class="aviso">
+      <b>Duração e datas saem impressas no contrato</b> (cláusulas 1.ª e 2.ª da minuta
+      aprovada). O WooCommerce não as tem, por isso são pedidas aqui — preenche com o
+      que realmente aconteceu em cada edição.<br><br>
+      <b>Quem já assinou em papel</b> não precisa de assinar outra vez: marca essa pessoa
+      no lote com "assinou em papel". O sistema regista isso sem gerar assinatura nenhuma.<br><br>
+      <b>Clube preenchido não é B2B.</b> Quem compra a título individual continua a ser
+      consumidor mesmo que indique o clube onde trabalha — a decisão é jurídica, por isso
+      o tipo é escolhido aqui e não deduzido do ficheiro.
+    </div>
+
+    <button type="submit">Criar lotes →</button>
+  </form>
+  {% endif %}
+</div>
+</body>
+</html>

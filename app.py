@@ -15,6 +15,7 @@ tem filesystem efémero — qualquer coisa escrita localmente desaparecia, e com
 ela os links de assinatura já enviados.
 """
 import base64
+import json
 import os
 import secrets
 import tempfile
@@ -128,6 +129,115 @@ async def criar_lote(request: Request,
     return RedirectResponse(f"/lote/{lote_id}", status_code=303)
 
 
+# --- Backfill: importar o histórico de formações do WooCommerce -------------
+# O export da loja traz uma linha por encomenda, com a ação de formação na
+# coluna `Product Name`. Um único ficheiro cobre anos de formações — por isso o
+# backfill é: agrupar por ação, pedir ao coordenador os dados que o WooCommerce
+# NÃO tem (modalidade, duração, datas) e criar um lote por ação.
+#
+# Os dados em falta são PEDIDOS, nunca inventados: duração e datas saem
+# impressas nas cláusulas 1.ª e 2.ª da minuta aprovada pela DGERT. Um valor
+# adivinhado ali é um contrato errado, não um campo por preencher.
+
+
+def _formandos_para_transporte(grupos: dict) -> str:
+    """Serializa os formandos já lidos para o passo seguinte do formulário.
+
+    O preview e a criação são dois pedidos e o ficheiro não se re-envia sozinho.
+    Base64 para o JSON atravessar o HTML sem depender do escaping do Jinja.
+    """
+    bruto = json.dumps(grupos, ensure_ascii=False).encode("utf-8")
+    return base64.b64encode(bruto).decode()
+
+
+def _formandos_do_transporte(payload: str) -> dict:
+    return json.loads(base64.b64decode(payload).decode("utf-8"))
+
+
+@app.post("/backfill/preview", response_class=HTMLResponse)
+async def backfill_preview(request: Request,
+                           excel: UploadFile = Form(...),
+                           _admin: None = Depends(require_admin)):
+    with tempfile.NamedTemporaryFile(suffix=".xlsx") as tmp:
+        tmp.write(await excel.read())
+        tmp.flush()
+        try:
+            formandos = excel_parser.ler_formandos(tmp.name)
+        except ValueError as e:
+            return web.TemplateResponse(request, "backfill.html",
+                                        {"erro": str(e)}, status_code=400)
+
+    grupos = excel_parser.agrupar_por_curso(formandos)
+
+    # Pré-preenchimento: se já existe um lote para esta ação, reaproveita os
+    # dados do curso. Evita reescrever modalidade/duração/datas a cada import,
+    # sem precisar de uma tabela de catálogo só para isso.
+    conhecidos = {}
+    for lote in store.todos_os_lotes().values():
+        nome = (lote.get("curso") or {}).get("nome")
+        if nome and nome not in conhecidos:
+            conhecidos[nome] = lote["curso"]
+
+    acoes = [{
+        "nome": nome,
+        "n": len(fs),
+        "com_clube": sum(1 for f in fs if f.get("clube")),
+        "sem_doc": sum(1 for f in fs if not f.get("doc_identificacao")),
+        "conhecido": conhecidos.get(nome),
+    } for nome, fs in grupos.items()]
+
+    return web.TemplateResponse(request, "backfill.html", {
+        "acoes": acoes,
+        "total": len(formandos),
+        "payload": _formandos_para_transporte(grupos),
+    })
+
+
+@app.post("/backfill/criar")
+async def backfill_criar(request: Request,
+                         _admin: None = Depends(require_admin)):
+    form = await request.form()
+    grupos = _formandos_do_transporte(str(form.get("payload", "")))
+
+    criados = []
+    for i, (nome_acao, formandos) in enumerate(grupos.items()):
+        if not form.get(f"incluir_{i}"):
+            continue
+        curso = {
+            "nome": str(form.get(f"nome_{i}") or nome_acao),
+            "modalidade": str(form.get(f"modalidade_{i}") or ""),
+            "duracao": str(form.get(f"duracao_{i}") or ""),
+            "data_inicio": str(form.get(f"data_inicio_{i}") or ""),
+            "data_conclusao": str(form.get(f"data_conclusao_{i}") or ""),
+        }
+        lote_id = store.criar_lote(
+            curso, formandos,
+            tipo_default=str(form.get(f"tipo_{i}") or "B2C"),
+            origem="backfill")
+        criados.append(lote_id)
+
+    if not criados:
+        return HTMLResponse("Nenhuma ação selecionada.", status_code=400)
+    if len(criados) == 1:
+        return RedirectResponse(f"/lote/{criados[0]}", status_code=303)
+    return RedirectResponse("/", status_code=303)
+
+
+@app.post("/formando/{token}/arquivar-papel")
+def arquivar_papel(token: str, nota: str = Form(""),
+                   _admin: None = Depends(require_admin)):
+    """Marca um formando como tendo assinado em papel.
+
+    Não gera PDF nem assinatura. O contrato de papel é o documento; isto só
+    diz à coordenação que esta linha não está à espera de nada.
+    """
+    lote_id, _, f = store.obter_formando(token)
+    if not f:
+        return HTMLResponse("Formando não encontrado.", status_code=404)
+    store.marcar_arquivado_papel(token, nota.strip() or "assinado em papel")
+    return RedirectResponse(f"/lote/{lote_id}", status_code=303)
+
+
 @app.get("/lote/{lote_id}", response_class=HTMLResponse)
 def dashboard(request: Request, lote_id: str, _admin: None = Depends(require_admin)):
     lote = store.obter_lote(lote_id)
@@ -138,8 +248,9 @@ def dashboard(request: Request, lote_id: str, _admin: None = Depends(require_adm
     for token, f in lote["formandos"].items():
         linhas.append({**f, "token": token,
                        "link": f"{base}/assinar/{token}"})
-    return web.TemplateResponse(request, "dashboard.html", {"lote_id": lote_id, "curso": lote["curso"],
-        "linhas": linhas})
+    return web.TemplateResponse(request, "dashboard.html", {
+        "lote_id": lote_id, "curso": lote["curso"],
+        "origem": lote.get("origem", "normal"), "linhas": linhas})
 
 
 @app.get("/assinar/{token}", response_class=HTMLResponse)

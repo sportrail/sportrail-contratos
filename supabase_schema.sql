@@ -59,3 +59,35 @@ alter table contract_signers enable row level security;
 -- Não são precisas políticas: a app acede pela service role, e os PDFs são
 -- servidos pela própria app em /pdf/<token>, nunca por URL direto do bucket.
 -- ============================================================================
+
+-- ============================================================================
+-- MIGRAÇÃO — Sessão 8: export real do WooCommerce + backfill do histórico
+-- ============================================================================
+-- Corre isto UMA VEZ, depois do bloco acima (é idempotente, dá para repetir).
+--
+-- PORQUÊ:
+--  * A minuta aprovada pela DGERT identifica o formando pelo DOCUMENTO DE
+--    IDENTIFICAÇÃO (n.º + validade) e pela residência (morada, concelho,
+--    distrito) — não pelo NIF. Nenhuma dessas colunas existia.
+--  * O export do WooCommerce traz ainda `cedula` (treinador) e `clube`, que
+--    são os dados que tornam a ficha do formando útil à coordenação.
+--  * `origem` distingue um lote normal de um lote importado do histórico.
+-- ============================================================================
+
+alter table contract_signers
+  add column if not exists doc_identificacao  text,   -- CC no export
+  add column if not exists validade_documento text,
+  add column if not exists cedula             text,   -- cédula de treinador
+  add column if not exists clube              text,
+  add column if not exists concelho           text,
+  add column if not exists distrito           text;
+
+alter table contract_batches
+  add column if not exists origem text not null default 'normal';
+                                          -- 'normal' | 'backfill'
+
+-- `estado` passa a aceitar 'arquivado_papel': formação antiga cujo contrato foi
+-- assinado em papel. Fica registada SEM assinatura e SEM PDF — inventar uma
+-- assinatura para fechar a linha era falsificar o documento.
+-- (A coluna é `text` livre, não há enum a alterar; fica aqui por ser onde se
+--  procura o significado dos estados.)

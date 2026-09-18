@@ -87,14 +87,15 @@ Alojado no **Render** (free): `https://sportrail-contratos.onrender.com`
 ```
 app.py                 rotas FastAPI (upload, dashboard, assinar, pdf)
 core/
-  clausulas.py         entidade + cláusulas em 3 CAMADAS + variantes B2C/B2B
-  excel_parser.py      lê Excel -> formandos (colunas com aliases)
+  clausulas.py         entidade + MINUTA APROVADA pela DGERT + adenda B2C
+  excel_parser.py      lê Excel -> formandos (export WooCommerce ou folha manual)
   contract.py          hidrata template -> HTML -> PDF (weasyprint) + auditoria/hash
   store.py             estado em data/state.json (trocar por DB em produção)
   drive.py             upload Google Drive (fallback local se sem credenciais)
 templates/
-  contrato.html        o contrato (merge fields, brand) + anexo livre resolução
-  upload.html          form de carregamento + seletor B2C/B2B
+  contrato.html        o contrato (minuta aprovada) + adenda B2C + anexo
+  upload.html          form de carregamento + seletor B2C/B2B + backfill
+  backfill.html        um lote por ação encontrada no export do WooCommerce
   dashboard.html       estado por formando
   assinar.html         página de assinatura (canvas) + consentimento dinâmico
   obrigado.html        confirmação
@@ -118,10 +119,47 @@ formandos_exemplo.xlsx exemplo de input
 - Variante escolhida por default no lote, com override por linha no Excel
   (coluna `tipo_contrato` = B2C/B2B). Default vazio → herda o do lote.
 
-### Cláusulas em 3 camadas (`core/clausulas.py`)
-1. Identificação/DTP — no quadro de destaque do template (auditável DGERT).
-2. Lei do consumidor (DL 24/2014) — só B2C.
-3. Contrato geral — objeto, pagamento, certificação SIGO, RGPD, etc.
+### O corpo do contrato é a minuta APROVADA (`core/clausulas.py`)
+`MINUTA_APROVADA` é transcrição literal da minuta "Contrato de Formação
+Sportrail V1. 2024", aprovada pela DGERT no pedido de certificação. **Não se
+reescreve, não se renumera, não se "melhora" a redação.** Se o documento gerado
+deixar de coincidir com ela, a certificação deixa de cobrir o que a Sportrail faz
+assinar. O `verify.py` tem âncoras de texto que falham se uma cláusula cair.
+
+Duas anomalias vêm da própria minuta e estão lá DE PROPÓSITO (com teste a
+garanti-lo): a Cláusula 3.ª numera os pontos "3." e "4.", e não existe Cláusula
+9.ª — salta da 8.ª para a 10.ª. Corrigi-las é decisão do jurista sobre um
+documento aprovado.
+
+As 3 camadas continuam a valer, mudou a origem do conteúdo:
+1. Identificação/DTP — preâmbulo + quadro de destaque (auditável DGERT).
+2. Lei do consumidor (DL 24/2014) — só B2C, e só em **ADENDA**, depois das
+   assinaturas. A minuta aprovada não tem livre resolução; acrescentar cláusulas
+   ao articulado alterava o documento aprovado. A adenda também não leva o
+   rodapé "V1. 2024" — não foi isso que a DGERT viu.
+3. Corpo do contrato — a minuta aprovada, igual em B2C e B2B.
+
+### Excel de formandos — dois formatos
+- **Export do WooCommerce** (o que a loja produz desde 2024, sem edição):
+  `First Name (Billing)` + `Last Name (Billing)` (o nome vem partido),
+  `Email (Billing)`, `CC`, `NIF`, `cedula`, `clube`, `Product Name`,
+  `Order Total Amount`.
+- **Folha manual**: `nome`, `email`, `nif`, `morada`, ... Continua a funcionar.
+
+O `CC` é o **documento de identificação** que a minuta pede no preâmbulo — a
+minuta não identifica o formando pelo NIF.
+
+### Backfill do histórico (`/backfill/preview` → `/backfill/criar`)
+Um export pode cobrir anos de formações: agrupa-se por `Product Name` e cria-se
+**um lote por ação** (`origem = 'backfill'`). O WooCommerce não tem modalidade,
+duração nem datas — e essas saem impressas nas cláusulas 1.ª e 2.ª, por isso são
+**pedidas ao coordenador, nunca inventadas**. Um valor adivinhado ali é um
+contrato errado, não um campo por preencher.
+
+Estado `arquivado_papel`: quem já assinou em papel fica registado **sem
+assinatura, sem PDF e sem hash**. Fabricar uma imagem de assinatura para fechar
+uma linha do backfill era falsificar exatamente o documento que o trilho de
+auditoria existe para tornar credível.
 
 ### Guarda-jurídica (CRÍTICO)
 - Todo o texto legal marcado com `[JURISTA]` é RASCUNHO e tem de ser validado
@@ -129,7 +167,12 @@ formandos_exemplo.xlsx exemplo de input
 - `[EMAIL DA ENTIDADE]` e afins são placeholders a preencher.
 - Quem programa NÃO decide se um profissional individual conta como consumidor
   (B2C) ou não — isso é decisão do jurista; a app só tem de suportar ambos.
-- Formação online → sem cláusula de seguro. Presencial → com seguro.
+  Em concreto: a coluna `clube` preenchida no export **não** torna a linha B2B.
+- O seguro: a minuta aprovada dá o seguro contra acidentes como direito do
+  formando (Cl. 3.ª, alínea b), **sem distinguir online de presencial**. Está
+  assim porque é o texto aprovado. A regra "online → sem seguro" que esta secção
+  tinha aplicava-se ao rascunho anterior; está PENDENTE de decisão do jurista
+  (ver tasks/todo.md, Sessão 8).
 
 ### Marca Sportrail (fonte de verdade; se em dúvida, PERGUNTAR antes de criar)
 - Cores: vermelho `#ED1C24` (hover `#c41920`), preto `#0B0A0F`, card `#13121A`,
@@ -140,7 +183,8 @@ formandos_exemplo.xlsx exemplo de input
   redesenhar o logótipo: se o ficheiro não estiver lá, usar a wordmark
   tipográfica e PERGUNTAR.
 - NIF Sportrail: 514144785. Tratar o formando por "tu" nos textos.
-- Diretora Pedagógica atual: Liliana Fernandes.
+- Diretora Pedagógica atual: Liliana Fernandes. Na minuta aprovada outorga como
+  **Gerente**, com o nome completo "Liliana Regina Fernandes".
 
 ## Workflow (seguir nesta ordem)
 1. **Plan First** — escreve/atualiza `tasks/todo.md` antes de mexer em código.
@@ -158,7 +202,11 @@ formandos_exemplo.xlsx exemplo de input
 - [x] Endpoint `/api/gerar-contrato` (motor de PDF para o dashboard).
 - [x] Endpoint genérico `/api/render-pdf` (motor de PDF do dossier DGERT).
 - [x] Fontes da marca na imagem (antes todo o PDF saía em DejaVu, sem erro).
-- [ ] Colar o texto jurídico validado por cima dos blocos `[JURISTA]`.
+- [x] Corpo do contrato = minuta aprovada pela DGERT (deixou de haver rascunho).
+- [x] Export do WooCommerce lido tal como sai + backfill do histórico.
+- [ ] Jurista: confirmar as anomalias de numeração da minuta (Cl. 3.ª, Cl. 9.ª).
+- [ ] Jurista: seguro em ações online (a minuta aprovada não distingue).
+- [ ] Jurista: validar a adenda B2C como forma de acrescentar a livre resolução.
 - [ ] Envio automático de emails com os links (SMTP/SendGrid).
 - [ ] Configurar arquivo real no Google Drive (conta de serviço — ver README).
 - [ ] Trocar estado JSON por SQLite/Postgres.
