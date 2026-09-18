@@ -31,9 +31,15 @@ Endpoints, todos protegidos pelo mesmo `PDF_API_TOKEN`, exceto o health check:
       dashboard. O HTML vem de fora e NÃO é de confiar — ver
       contract.gerar_pdf_bytes_isolado.
 
+  POST /api/juntar-pdf        {documentos:[{pdf_base64, titulo}]}
+                              -> {pdf_base64, hash, doc_id, data, tz, paginas}
+      Junta PDF já gerados num só, com marcadores — o DTP compilado. Junta os
+      documentos TAL COMO foram arquivados; não os regera.
+
   GET  /health                health check do Render.
 """
 import base64
+import io
 import os
 import secrets
 from pathlib import Path
@@ -41,6 +47,7 @@ from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Header
 from pydantic import BaseModel
+from pypdf import PdfReader
 
 from core import contract, clausulas
 
@@ -91,6 +98,15 @@ class GerarContratoIn(BaseModel):
 class RenderPdfIn(BaseModel):
     html: str
     nome: Optional[str] = None     # só para diagnóstico; não afeta o render
+
+
+class DocumentoParaJuntar(BaseModel):
+    pdf_base64: str
+    titulo: Optional[str] = None   # vira marcador (outline) no PDF final
+
+
+class JuntarPdfIn(BaseModel):
+    documentos: list[DocumentoParaJuntar]
 
 
 # --- API: contrato por assinar, em HTML ------------------------------------
@@ -154,4 +170,46 @@ def api_render_pdf(dados: RenderPdfIn,
         "doc_id": doc_id,
         "data": aud["data"],
         "tz": aud["tz"],
+    }
+
+
+# --- API: juntar PDF já gerados (DTP compilado) -----------------------------
+# O dossier técnico-pedagógico acaba num PDF único, ordenado pelas secções do
+# referencial. Quem sabe essa ordem é o dashboard, que tem os documentos
+# arquivados e o catálogo; aqui só acontece a parte que precisa de Python.
+#
+# Junta os PDF COMO ELES FORAM ARQUIVADOS. Regerá-los aqui dava um compilado que
+# não corresponde a nenhum dos documentos cujo hash está registado — e é o hash
+# que torna o arquivo credível.
+@app.post("/api/juntar-pdf")
+def api_juntar_pdf(dados: JuntarPdfIn,
+                   x_api_token: Optional[str] = Header(default=None)):
+    _exigir_token_api(x_api_token)
+
+    partes = []
+    for indice, d in enumerate(dados.documentos, start=1):
+        titulo = (d.titulo or f"Documento {indice}").strip()
+        try:
+            # validate=True: sem isto o base64 ignora lixo em silêncio e o
+            # pypdf rebentava depois, com uma mensagem sobre outra coisa.
+            partes.append({"pdf": base64.b64decode(d.pdf_base64, validate=True),
+                           "titulo": titulo})
+        except Exception:
+            raise HTTPException(status_code=422,
+                                detail=f"{titulo}: base64 inválido.")
+
+    try:
+        pdf = contract.juntar_pdfs(partes)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+    doc_id = secrets.token_hex(8).upper()
+    aud = contract.construir_auditoria_compilado(doc_id, pdf)
+    return {
+        "pdf_base64": base64.b64encode(pdf).decode(),
+        "hash": aud["hash"],
+        "doc_id": doc_id,
+        "data": aud["data"],
+        "tz": aud["tz"],
+        "paginas": len(PdfReader(io.BytesIO(pdf)).pages),
     }

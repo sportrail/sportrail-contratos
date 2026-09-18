@@ -1,10 +1,12 @@
 """Hidrata o template do contrato e gera o PDF. Calcula trilho de auditoria."""
 import hashlib
 import datetime
+import io
 from pathlib import Path
 from jinja2 import Environment, FileSystemLoader
 from weasyprint import HTML
 from weasyprint.urls import URLFetcher
+from pypdf import PdfReader, PdfWriter
 
 from .clausulas import (ENTIDADE, clausulas, precisa_formulario_resolucao,
                         PRAZO_LIVRE_RESOLUCAO_DIAS)
@@ -101,6 +103,88 @@ def gerar_pdf_bytes_isolado(html):
             f"HTML acima do limite de {LIMITE_HTML_BYTES // (1024 * 1024)} MB.")
     fetcher = URLFetcher(allowed_protocols={"data"})
     return HTML(string=html, base_url=None, url_fetcher=fetcher).write_pdf()
+
+
+# --- Juntar PDF (DTP compilado) --------------------------------------------
+# Um dossier técnico-pedagógico acaba num PDF único, ordenado pelas secções do
+# referencial. As partes chegam já geradas e ARQUIVADAS — não se regeram aqui.
+# É esse o ponto: o compilado é o dossier tal como foi datado e arquivado, e o
+# hash de cada parte já está registado no dashboard.
+
+LIMITE_JUNTAR_BYTES = 40 * 1024 * 1024
+LIMITE_JUNTAR_PARTES = 40
+
+
+def juntar_pdfs(documentos):
+    """Junta PDF já gerados num só, com marcadores por documento.
+
+    `documentos` é uma lista de {"pdf": bytes, "titulo": str}. A ordem é a que
+    vem — quem sabe a ordem do referencial é o dashboard, não este motor.
+
+    Os marcadores (outline) não são enfeite: um DTP compilado tem para cima de
+    cinquenta páginas, e sem eles quem o audita percorre-o à roda do rato.
+
+    Falha FECHADO e a dizer qual: um PDF corrompido ou cifrado no meio de quinze
+    não se pode ignorar em silêncio, senão o compilado sai com um documento a
+    menos e ninguém repara.
+    """
+    if not documentos:
+        raise ValueError("Sem documentos para juntar.")
+    if len(documentos) > LIMITE_JUNTAR_PARTES:
+        raise ValueError(
+            f"Demasiados documentos ({len(documentos)}); o limite é "
+            f"{LIMITE_JUNTAR_PARTES}.")
+
+    total = sum(len(d.get("pdf") or b"") for d in documentos)
+    if total > LIMITE_JUNTAR_BYTES:
+        raise ValueError(
+            f"Conjunto acima do limite de "
+            f"{LIMITE_JUNTAR_BYTES // (1024 * 1024)} MB.")
+
+    escritor = PdfWriter()
+    for indice, doc in enumerate(documentos, start=1):
+        titulo = (doc.get("titulo") or f"Documento {indice}").strip()
+        bytes_pdf = doc.get("pdf") or b""
+        if not bytes_pdf:
+            raise ValueError(f"{titulo}: PDF vazio.")
+        try:
+            leitor = PdfReader(io.BytesIO(bytes_pdf))
+            if leitor.is_encrypted:
+                raise ValueError(f"{titulo}: PDF cifrado.")
+            primeira = len(escritor.pages)
+            for pagina in leitor.pages:
+                escritor.add_page(pagina)
+        except ValueError:
+            raise
+        except Exception as e:
+            raise ValueError(f"{titulo}: PDF ilegível ({e.__class__.__name__}).")
+
+        if len(escritor.pages) == primeira:
+            raise ValueError(f"{titulo}: PDF sem páginas.")
+        escritor.add_outline_item(titulo, primeira)
+
+    saida = io.BytesIO()
+    escritor.write(saida)
+    return saida.getvalue()
+
+
+def hash_pdf(pdf_bytes, doc_id):
+    """SHA-256 do PDF compilado (vincula doc_id + os bytes exatos)."""
+    h = hashlib.sha256()
+    h.update(f"{doc_id}|".encode("utf-8"))
+    h.update(pdf_bytes)
+    return h.hexdigest()
+
+
+def construir_auditoria_compilado(doc_id, pdf_bytes):
+    """Trilho de auditoria de um PDF compilado a partir de outros já gerados."""
+    agora = datetime.datetime.now(datetime.timezone.utc).astimezone()
+    return {
+        "data": agora.strftime("%d/%m/%Y %H:%M:%S"),
+        "tz": agora.strftime("%Z") or "UTC",
+        "doc_id": doc_id,
+        "hash": hash_pdf(pdf_bytes, doc_id),
+    }
 
 
 def hash_html(html, doc_id):

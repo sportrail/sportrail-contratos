@@ -114,3 +114,23 @@ errada. Estava escrito nos dois repos, em texto simples, e passou.
 **Correção:** o estado saiu deste repo (ficou só o motor de contratos e de
 PDF). A página de assinatura passou para o dashboard, onde as tabelas estão
 mesmo. Detalhe em `tasks/bug-assinatura.md`, no dashboard.
+
+## 2026-09-18 — Juntar não é gerar
+
+- **O compilado junta o que foi arquivado; não o regera.** A tentação era hidratar
+  tudo outra vez e imprimir de seguida — sai mais simples e dá um PDF mais bonito.
+  Mas o hash de cada documento já está registado no dashboard, e um compilado
+  regerado não corresponde a nenhum deles. O valor do arquivo é ser verificável; um
+  PDF bonito que não bate com nenhum hash não vale nada numa auditoria.
+- **Falhar em silêncio é pior do que falhar.** Quinze PDF a entrar e um corrompido:
+  ignorá-lo dava um dossier com um documento a menos, e ninguém reparava. Por isso o
+  `juntar_pdfs` recusa a operação inteira e põe **o título do documento** na
+  mensagem — o que falta saber é qual, não que houve um problema.
+- **`base64.b64decode` sem `validate=True` engole lixo.** Sem a flag, aceita
+  qualquer coisa e devolve bytes que não são um PDF; o erro só aparecia mais à
+  frente, no `pypdf`, com uma mensagem sobre outra coisa. O erro tem de aparecer
+  onde a suposição se quebra.
+- **Um teste que vale a pena: a ordem.** Verificar que juntar a lista invertida dá
+  os marcadores invertidos parece tolice. Não é: fixa que a ordem do referencial é
+  decisão do dashboard, e não deste motor. Se alguém aqui resolver ordenar por
+  título "para ficar arrumado", o teste acusa.
