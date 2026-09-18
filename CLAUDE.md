@@ -1,111 +1,104 @@
-# CLAUDE.md — Sportrail · Contratos de Formação
+# CLAUDE.md — Sportrail · Motor de Contratos e PDF
 
 Contexto para o Claude Code trabalhar neste repositório. Lê isto primeiro.
 
 ## O que é
 
-App web (FastAPI) que automatiza a assinatura digital de contratos de formação
-da Sportrail. Fluxo: o coordenador carrega um Excel de formandos + dados do
-curso → o sistema gera um contrato hidratado por pessoa (com a assinatura da
-Diretora Pedagógica já incluída) → cada formando recebe um link único → assina
-no browser (canvas) e consente → o sistema carimba trilho de auditoria
-(timestamp, IP, hash SHA-256), gera o PDF final e arquiva-o na pasta DTP do
-curso no Google Drive.
+Serviço **sem estado** (FastAPI) que faz duas coisas que precisam de Python:
 
-É o "Caminho B" (construir em vez de comprar SaaS de assinatura). Implementa
-assinatura eletrónica **simples** (eIDAS), suficiente e admissível para
-contratos de formação.
+1. **Hidrata o contrato de formação** com as cláusulas jurídicas da Sportrail
+   (3 camadas, variantes B2C/B2B, livre resolução do DL 24/2014).
+2. **Renderiza HTML → PDF** com o WeasyPrint.
+
+Não escreve na base de dados, não guarda ficheiros, não tem sessões nem
+utilizadores. Recebe dados, devolve documentos.
+
+**O que NÃO está aqui:** lotes, formandos, tokens, a página de assinatura, os
+PDF arquivados, o upload do Excel. Isso vive no **`sportrail-dashboard`**, que é
+onde as tabelas estão. Se estás à procura de `store.py`, `db.py`, `drive.py`,
+`excel_parser.py` ou `supabase_schema.sql`, foram apagados a 18 set 2026 — ver
+`tasks/lessons.md`.
+
+### Porque é que a divisão é esta
+
+O texto jurídico tem de ter **uma fonte só**. Reescrevê-lo em TypeScript para o
+dashboard o mostrar criava uma segunda versão para divergir em silêncio — e
+depois um contrato assinado com um texto e uma página a mostrar outro.
+
+O estado, ao contrário, não tem nada de especial que justifique viver em duas
+aplicações. Vive onde já vivia.
+
+## Endpoints
+
+Todos protegidos pelo mesmo `PDF_API_TOKEN` (header `x-api-token`), exceto o
+`/health`. Falham **fechados**: sem o segredo configurado respondem 503.
+
+| Endpoint | Recebe | Devolve |
+| --- | --- | --- |
+| `POST /api/contrato-preview` | `{curso, formando, tipo}` | `{html, consentimento}` — o contrato por assinar, para o formando ler |
+| `POST /api/gerar-contrato` | `{curso, formando, tipo, assinatura, ip}` | `{pdf_base64, hash, doc_id, data, tz}` — o contrato assinado, com auditoria |
+| `POST /api/render-pdf` | `{html}` | `{pdf_base64, hash, doc_id, data, tz}` — motor genérico do dossier |
+| `GET /health` | — | `{status: "ok"}` (health check do Render) |
+
+**O `/api/render-pdf` recebe HTML de fora e NÃO é de confiar**:
+`gerar_pdf_bytes_isolado` corre com `base_url=None` e um
+`URLFetcher(allowed_protocols={"data"})`. Sem isso, um
+`<img src="file:///etc/passwd">` transformava o endpoint numa primitiva de
+leitura de ficheiros do servidor. Tudo o que o documento precise (logótipos,
+assinaturas) vai embutido em `data:` URI. Há um limite de 2 MB de HTML (→ 413).
+
+Os outros dois hidratam os nossos próprios templates, por isso não precisam do
+mesmo isolamento.
 
 ## Como correr e verificar
 
 ```bash
 make setup     # cria venv e instala dependências
 make run       # arranca em http://127.0.0.1:8000
-make verify    # smoke test do pipeline (sem servidor) — CORRE ISTO ANTES DE DAR ALGO POR FEITO
-make clean      # limpa estado e PDFs gerados
-```
-
-Sem `make`:
-```bash
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-uvicorn app:app --reload --port 8000
-python verify.py
+make verify    # smoke test — CORRE ISTO ANTES DE DAR ALGO POR FEITO
+make clean
 ```
 
 ### Dependência de sistema (importante)
-O `weasyprint` (motor HTML→PDF) precisa de bibliotecas nativas **Pango/Cairo**.
+O `weasyprint` precisa de bibliotecas nativas **Pango/Cairo**.
 - macOS: `brew install pango gdk-pixbuf libffi`
 - Debian/Ubuntu: `apt install libpango-1.0-0 libpangocairo-1.0-0 libgdk-pixbuf2.0-0`
-- Deploy: já tratado no `Dockerfile` (instala estas libs via apt).
+- Deploy: tratado no `Dockerfile`.
 - CI: `.github/workflows/verify.yml` corre `python verify.py` em cada push/PR
   para `main`, com a mesma lista de apt do `Dockerfile`. Se mudares uma lista,
   muda a outra.
+
 Se o `import weasyprint` falhar, é quase sempre isto.
 
-### Variáveis de ambiente (ver `.env.example`)
-- `BASE_URL` — URL pública (links de assinatura). Vazio em local.
-- `ADMIN_USER` / `ADMIN_PASS` — Basic Auth na zona de coordenação (`/`, criar
-  lote, dashboard). FALHA FECHADA: se vazias → essas rotas respondem 503, nunca
-  abrem (em local, copia `.env.example` para `.env` e usa `--env-file .env`).
-  `/assinar/<token>`, `/pdf/<token>`, `/health`, `/api/gerar-contrato` e
-  `/api/render-pdf` ficam fora desta proteção de propósito (token, health check
-  do Render, PDF_API_TOKEN).
-- `PDF_API_TOKEN` — segredo que protege `POST /api/gerar-contrato` e
-  `POST /api/render-pdf` (motores de PDF do dashboard). Sem isto os endpoints dão
-  503. Igual ao `CONTRATOS_PDF_TOKEN` no dashboard.
-- `DRIVE_ROOT_FOLDER_ID` — arquivo no Drive; sem isto, cai para `data/arquivo/`.
+### Variáveis de ambiente
+Uma só: **`PDF_API_TOKEN`**. Igual ao `CONTRATOS_PDF_TOKEN` do dashboard.
 
 ### Deploy — Render (ativo)
-Alojado no **Render** (free): `https://sportrail-contratos.onrender.com`
-(serviço `sportrail-contratos`, região Frankfurt, Docker). `render.yaml`
-(Blueprint) + `Dockerfile` (instala Pango/Cairo, lê `$PORT`). Gerido pelo CLI
-`render`. No plano free adormece após ~15 min (1.º pedido ~30s a acordar).
-(Antes esteve no Railway; o trial expirou → migrado para o Render.)
-
-### Papel triplo desta app
-1. **App autónoma** — fluxo completo (upload → dashboard → assinar → PDF).
-2. **Motor de contratos do dashboard** — `POST /api/gerar-contrato` (protegido
-   por `PDF_API_TOKEN`): recebe `{curso, formando, tipo, assinatura, ip}` e
-   devolve `{pdf_base64, hash, doc_id, data, tz}`. O dashboard (Next) delega-lhe
-   só o PDF, reutilizando as cláusulas jurídicas e o WeasyPrint.
-3. **Motor de PDF genérico** — `POST /api/render-pdf` (mesmo token): recebe
-   `{html}` já hidratado e devolve `{pdf_base64, hash, doc_id, data, tz}`, com
-   `hash = SHA-256(doc_id|html)`. Serve os documentos do dossier
-   técnico-pedagógico, cujos **templates vivem no dashboard**, junto do modelo de
-   dados que os alimenta — aqui só acontece a parte que precisa de Python.
-
-   O HTML vem de fora e **não é de confiar**: `gerar_pdf_bytes_isolado` corre com
-   `base_url=None` e um `URLFetcher(allowed_protocols={"data"})`. Sem isso, um
-   `<img src="file:///etc/passwd">` transformava o endpoint numa primitiva de
-   leitura de ficheiros do servidor. Tudo o que o documento precise (logótipos,
-   assinaturas) vai embutido em `data:` URI. Há também um limite de 2 MB de HTML
-   (→ 413). O endpoint é **stateless**: quem persiste é o dashboard.
+`https://sportrail-contratos.onrender.com` (serviço `sportrail-contratos`,
+Frankfurt, Docker). `render.yaml` + `Dockerfile`. No plano free adormece após
+~15 min, e o 1.º pedido leva ~30 s a acordar — quem chama tem de tolerar isso
+(o dashboard tem timeout de 60 s e uma função de aquecimento).
 
 ## Arquitetura
 
 ```
-app.py                 rotas FastAPI (upload, dashboard, assinar, pdf)
+app.py                 4 rotas: 3 endpoints /api/* + /health
 core/
   clausulas.py         entidade + cláusulas em 3 CAMADAS + variantes B2C/B2B
-  excel_parser.py      lê Excel -> formandos (colunas com aliases)
+                       + texto_consentimento()
   contract.py          hidrata template -> HTML -> PDF (weasyprint) + auditoria/hash
-  store.py             estado em data/state.json (trocar por DB em produção)
-  drive.py             upload Google Drive (fallback local se sem credenciais)
 templates/
   contrato.html        o contrato (merge fields, brand) + anexo livre resolução
-  upload.html          form de carregamento + seletor B2C/B2B
-  dashboard.html       estado por formando
-  assinar.html         página de assinatura (canvas) + consentimento dinâmico
-  obrigado.html        confirmação
 static/assinatura_diretora.png   SUBSTITUIR pela assinatura real
 static/logo_sportrail.svg        logótipo do cabeçalho (vetorial, do EPS da marca);
                        sem ficheiro, cai para a wordmark tipográfica
 static/fonts/          Bebas Neue + DM Sans (OFL); o Dockerfile instala-as como
                        fontes de sistema — ver static/fonts/README.md
-verify.py              smoke test do pipeline
-formandos_exemplo.xlsx exemplo de input
+verify.py              smoke test
 ```
+
+Nada em `static/` é servido por HTTP: o `contract.py` lê-o do disco e embute-o
+em `data:` URI. O mount `/static` saiu com as páginas web.
 
 ## Regras de domínio (não quebrar)
 
@@ -115,13 +108,16 @@ formandos_exemplo.xlsx exemplo de input
   consentimento na assinatura serve de **pedido expresso** (art. 4.º) para
   iniciar a formação antes dos 14 dias.
 - **B2B** (empresa/clube adquirente): SEM livre resolução nem anexo.
-- Variante escolhida por default no lote, com override por linha no Excel
-  (coluna `tipo_contrato` = B2C/B2B). Default vazio → herda o do lote.
+- Quem escolhe a variante é o dashboard (default do lote, com override por
+  linha no Excel). Aqui só se recebe `tipo` e se obedece.
 
 ### Cláusulas em 3 camadas (`core/clausulas.py`)
 1. Identificação/DTP — no quadro de destaque do template (auditável DGERT).
 2. Lei do consumidor (DL 24/2014) — só B2C.
 3. Contrato geral — objeto, pagamento, certificação SIGO, RGPD, etc.
+
+`texto_consentimento()` vive aqui, e não na página que o mostra, pela mesma
+razão: é texto jurídico.
 
 ### Guarda-jurídica (CRÍTICO)
 - Todo o texto legal marcado com `[JURISTA]` é RASCUNHO e tem de ser validado
@@ -146,25 +142,22 @@ formandos_exemplo.xlsx exemplo de input
 1. **Plan First** — escreve/atualiza `tasks/todo.md` antes de mexer em código.
 2. **Subagents** — divide trabalho independente quando fizer sentido.
 3. **Self-Improvement** — regista aprendizagens em `tasks/lessons.md`.
-4. **Verify** — corre `make verify` (e o fluxo HTTP se mexeste em rotas) antes
-   de dar algo por concluído. Não declarar "feito" sem verificação.
-5. **Elegance Balanced** — simples e legível; não sobre-engenheirar o protótipo.
+4. **Verify** — corre `make verify` antes de dar algo por concluído. Não
+   declarar "feito" sem verificação.
+5. **Elegance Balanced** — simples e legível; não sobre-engenheirar.
 6. **Autonomous Bug Fixing** — se um teste falha, diagnostica e corrige.
 
 ## Roadmap / pendente
-- [x] Autenticação na zona de admin (`/` e `/lote/*`) — Basic Auth por env.
 - [x] Dockerfile para deploy (Pango/Cairo + `$PORT`).
-- [x] Deploy online (Render free): BASE_URL + ADMIN + PDF_API_TOKEN definidos.
-- [x] Endpoint `/api/gerar-contrato` (motor de PDF para o dashboard).
-- [x] Endpoint genérico `/api/render-pdf` (motor de PDF do dossier DGERT).
+- [x] Deploy online (Render free).
+- [x] `/api/gerar-contrato` — motor de contratos do dashboard.
+- [x] `/api/render-pdf` — motor de PDF genérico do dossier.
+- [x] `/api/contrato-preview` — contrato por assinar, em HTML.
 - [x] Fontes da marca na imagem (antes todo o PDF saía em DejaVu, sem erro).
-- [ ] Colar o texto jurídico validado por cima dos blocos `[JURISTA]`.
-- [ ] Envio automático de emails com os links (SMTP/SendGrid).
-- [ ] Configurar arquivo real no Google Drive (conta de serviço — ver README).
-- [ ] Trocar estado JSON por SQLite/Postgres.
+- [x] Sair do negócio do estado: o que tinha estado passou para o dashboard.
+- [ ] **Colar o texto jurídico validado por cima dos blocos `[JURISTA]`.**
 - [ ] Contrato de formador (além do de formando).
 
 ## Convenções
 - Português europeu, "tu". Comentários e mensagens em PT.
-- Não criar ficheiros em `data/` no git (estado runtime). Ver `.gitignore`.
-- Segredos (`service_account.json`, `.env`) NUNCA versionados.
+- Segredos (`.env`) NUNCA versionados.
