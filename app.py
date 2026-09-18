@@ -1,99 +1,52 @@
 """
-App web — Contratos de Formação Sportrail (protótipo Caminho B).
+Motor de contratos e de PDF da Sportrail (FastAPI).
 
-Fluxo:
-  1. Coordenador abre "/", preenche dados do curso e carrega o Excel.
-  2. Sistema cria um lote, um link único de assinatura por formando.
-  3. Coordenador envia os links (a app mostra-os e dá captions prontos).
-  4. Formando abre o link, lê o contrato, assina no canvas, consente, submete.
-  5. App gera PDF assinado + auditoria, arquiva no Drive, marca como assinado.
-  6. Dashboard mostra estado por formando.
+Esta app **não tem estado**. Não escreve na base de dados, não guarda ficheiros,
+não tem sessões. Recebe dados, devolve documentos.
 
-Nada de estado em disco: os lotes e os formandos vivem no Postgres do Supabase
-e os PDFs no bucket `contratos`. O tier grátis do Render adormece o serviço e
-tem filesystem efémero — qualquer coisa escrita localmente desaparecia, e com
-ela os links de assinatura já enviados.
+O que cá vive, e a razão de cá viver, é o **texto jurídico**: as cláusulas em 3
+camadas, as variantes B2C/B2B, a livre resolução do DL 24/2014 e a declaração
+de consentimento. Uma segunda cópia disso em TypeScript seria uma segunda
+versão para divergir em silêncio. Cá vive também o WeasyPrint, que é Python.
+
+Tudo o que tem estado — lotes, formandos, tokens, PDF arquivados, a página de
+assinatura — vive no `sportrail-dashboard`, que é onde as tabelas estão mesmo.
+Já era assim na prática: o `supabase_schema.sql` desta app nunca chegou a ser
+aplicado (o `create table if not exists` encontrou as tabelas do dashboard e
+não fez nada), e por isso a metade com estado desta app estava morta há meses,
+sem dar erro, porque ninguém a percorria. Ver `tasks/bug-assinatura.md` no
+dashboard.
+
+Endpoints, todos protegidos pelo mesmo `PDF_API_TOKEN`, exceto o health check:
+
+  POST /api/contrato-preview  {curso, formando, tipo} -> {html, consentimento}
+      O contrato por assinar, para o formando ler. Sem assinatura, sem auditoria.
+
+  POST /api/gerar-contrato    {curso, formando, tipo, assinatura, ip}
+                              -> {pdf_base64, hash, doc_id, data, tz}
+      O contrato assinado, com trilho de auditoria.
+
+  POST /api/render-pdf        {html} -> {pdf_base64, hash, doc_id, data, tz}
+      Motor genérico para os documentos do dossier, cujos templates vivem no
+      dashboard. O HTML vem de fora e NÃO é de confiar — ver
+      contract.gerar_pdf_bytes_isolado.
+
+  GET  /health                health check do Render.
 """
 import base64
-import json
 import os
 import secrets
-import tempfile
 from pathlib import Path
 from typing import Optional
 
-from fastapi import (FastAPI, Request, UploadFile, Form, Depends, HTTPException,
-                     status, Header)
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
-from fastapi.security import HTTPBasic, HTTPBasicCredentials
-from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
+from fastapi import FastAPI, HTTPException, Header
 from pydantic import BaseModel
 
-from core import excel_parser, contract, store, drive, pdfstore
+from core import contract, clausulas
 
 BASE = Path(__file__).resolve().parent
 
-app = FastAPI(title="Sportrail — Contratos de Formação")
-app.mount("/static", StaticFiles(directory=str(BASE / "static")), name="static")
-web = Jinja2Templates(directory=str(BASE / "templates"))
-
-
-# --- Proteção da zona de coordenação (Basic Auth) ---------------------------
-# ADMIN_USER e ADMIN_PASS (Environment do Render) protegem "/", criar lote e o
-# dashboard do lote. Estas páginas mostram nome, NIF, morada e email de todos os
-# formandos e os links /assinar/<token>, que permitem assinar em nome de cada
-# um — por isso a proteção FALHA FECHADA: sem as variáveis, respondem 503 em vez
-# de abrirem. Ficam abertas de propósito: /assinar/<token> e /pdf/<token> (o
-# token, enviado a cada formando, é que autoriza), /health (health check do
-# Render; protegê-lo marcava o serviço como não saudável) e /api/gerar-contrato
-# (tem o seu próprio PDF_API_TOKEN).
-# auto_error=False para distinguir "sem credenciais" de "credenciais erradas".
-_REALM_NOME = "Sportrail Contratos"
-_security = HTTPBasic(auto_error=False, realm=_REALM_NOME)
-_REALM = f'Basic realm="{_REALM_NOME}"'
-
-
-def _admin_env() -> tuple[Optional[str], Optional[str]]:
-    """Lidas a cada pedido — permite ao verify.py testar os vários cenários."""
-    return os.environ.get("ADMIN_USER"), os.environ.get("ADMIN_PASS")
-
-
-def _iguais(a: str, b: str) -> bool:
-    # Em bytes: compare_digest com str rebenta (TypeError) se houver não-ASCII.
-    return secrets.compare_digest(a.encode("utf-8"), b.encode("utf-8"))
-
-
-def require_admin(creds: Optional[HTTPBasicCredentials] = Depends(_security)):
-    """Exige Basic Auth nas rotas de coordenação. Sem ADMIN_USER/ADMIN_PASS → 503."""
-    admin_user, admin_pass = _admin_env()
-    if not (admin_user and admin_pass):
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Zona de coordenação indisponível: faltam as variáveis de "
-                   "ambiente ADMIN_USER e/ou ADMIN_PASS no servidor.")
-    if creds is None:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
-                            detail="Acesso restrito: autenticação necessária.",
-                            headers={"WWW-Authenticate": _REALM})
-    # Avaliar os dois antes do `and`: o tempo de resposta não revela qual falhou.
-    user_ok = _iguais(creds.username, admin_user)
-    pass_ok = _iguais(creds.password, admin_pass)
-    if not (user_ok and pass_ok):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
-                            detail="Acesso restrito: credenciais inválidas.",
-                            headers={"WWW-Authenticate": _REALM})
-
-
-if not all(_admin_env()):
-    print("[AVISO] ADMIN_USER/ADMIN_PASS não definidas — a zona de coordenação "
-          "responde 503 até as definires (ver .env.example).")
-
-
-def _base_url(request: Request) -> str:
-    # Permite override por proxy (BASE_URL) para os links serem públicos.
-    import os
-    return os.environ.get("BASE_URL", str(request.base_url)).rstrip("/")
+app = FastAPI(title="Sportrail — Motor de Contratos e PDF")
 
 
 @app.get("/health")
@@ -102,234 +55,15 @@ def health():
     return {"status": "ok"}
 
 
-@app.get("/", response_class=HTMLResponse)
-def home(request: Request, _admin: None = Depends(require_admin)):
-    return web.TemplateResponse(request, "upload.html", {"lotes": store.todos_os_lotes()})
-
-
-@app.post("/criar-lote")
-async def criar_lote(request: Request,
-                     nome_curso: str = Form(...),
-                     modalidade: str = Form("Online (formação a distância)"),
-                     duracao: str = Form(...),
-                     data_inicio: str = Form(...),
-                     data_conclusao: str = Form(...),
-                     tipo_contrato: str = Form("B2C"),
-                     excel: UploadFile = Form(...),
-                     _admin: None = Depends(require_admin)):
-    # openpyxl quer um caminho; o ficheiro só precisa de existir durante o pedido.
-    with tempfile.NamedTemporaryFile(suffix=".xlsx") as tmp:
-        tmp.write(await excel.read())
-        tmp.flush()
-        formandos = excel_parser.ler_formandos(tmp.name)
-
-    curso = {"nome": nome_curso, "modalidade": modalidade, "duracao": duracao,
-             "data_inicio": data_inicio, "data_conclusao": data_conclusao}
-    lote_id = store.criar_lote(curso, formandos, tipo_default=tipo_contrato)
-    return RedirectResponse(f"/lote/{lote_id}", status_code=303)
-
-
-# --- Backfill: importar o histórico de formações do WooCommerce -------------
-# O export da loja traz uma linha por encomenda, com a ação de formação na
-# coluna `Product Name`. Um único ficheiro cobre anos de formações — por isso o
-# backfill é: agrupar por ação, pedir ao coordenador os dados que o WooCommerce
-# NÃO tem (modalidade, duração, datas) e criar um lote por ação.
-#
-# Os dados em falta são PEDIDOS, nunca inventados: duração e datas saem
-# impressas nas cláusulas 1.ª e 2.ª da minuta aprovada pela DGERT. Um valor
-# adivinhado ali é um contrato errado, não um campo por preencher.
-
-
-def _formandos_para_transporte(grupos: dict) -> str:
-    """Serializa os formandos já lidos para o passo seguinte do formulário.
-
-    O preview e a criação são dois pedidos e o ficheiro não se re-envia sozinho.
-    Base64 para o JSON atravessar o HTML sem depender do escaping do Jinja.
-    """
-    bruto = json.dumps(grupos, ensure_ascii=False).encode("utf-8")
-    return base64.b64encode(bruto).decode()
-
-
-def _formandos_do_transporte(payload: str) -> dict:
-    return json.loads(base64.b64decode(payload).decode("utf-8"))
-
-
-@app.post("/backfill/preview", response_class=HTMLResponse)
-async def backfill_preview(request: Request,
-                           excel: UploadFile = Form(...),
-                           _admin: None = Depends(require_admin)):
-    with tempfile.NamedTemporaryFile(suffix=".xlsx") as tmp:
-        tmp.write(await excel.read())
-        tmp.flush()
-        try:
-            formandos = excel_parser.ler_formandos(tmp.name)
-        except ValueError as e:
-            return web.TemplateResponse(request, "backfill.html",
-                                        {"erro": str(e)}, status_code=400)
-
-    grupos = excel_parser.agrupar_por_curso(formandos)
-
-    # Pré-preenchimento: se já existe um lote para esta ação, reaproveita os
-    # dados do curso. Evita reescrever modalidade/duração/datas a cada import,
-    # sem precisar de uma tabela de catálogo só para isso.
-    conhecidos = {}
-    for lote in store.todos_os_lotes().values():
-        nome = (lote.get("curso") or {}).get("nome")
-        if nome and nome not in conhecidos:
-            conhecidos[nome] = lote["curso"]
-
-    acoes = [{
-        "nome": nome,
-        "n": len(fs),
-        "com_clube": sum(1 for f in fs if f.get("clube")),
-        "sem_doc": sum(1 for f in fs if not f.get("doc_identificacao")),
-        "conhecido": conhecidos.get(nome),
-    } for nome, fs in grupos.items()]
-
-    return web.TemplateResponse(request, "backfill.html", {
-        "acoes": acoes,
-        "total": len(formandos),
-        "payload": _formandos_para_transporte(grupos),
-    })
-
-
-@app.post("/backfill/criar")
-async def backfill_criar(request: Request,
-                         _admin: None = Depends(require_admin)):
-    form = await request.form()
-    grupos = _formandos_do_transporte(str(form.get("payload", "")))
-
-    criados = []
-    for i, (nome_acao, formandos) in enumerate(grupos.items()):
-        if not form.get(f"incluir_{i}"):
-            continue
-        curso = {
-            "nome": str(form.get(f"nome_{i}") or nome_acao),
-            "modalidade": str(form.get(f"modalidade_{i}") or ""),
-            "duracao": str(form.get(f"duracao_{i}") or ""),
-            "data_inicio": str(form.get(f"data_inicio_{i}") or ""),
-            "data_conclusao": str(form.get(f"data_conclusao_{i}") or ""),
-        }
-        lote_id = store.criar_lote(
-            curso, formandos,
-            tipo_default=str(form.get(f"tipo_{i}") or "B2C"),
-            origem="backfill")
-        criados.append(lote_id)
-
-    if not criados:
-        return HTMLResponse("Nenhuma ação selecionada.", status_code=400)
-    if len(criados) == 1:
-        return RedirectResponse(f"/lote/{criados[0]}", status_code=303)
-    return RedirectResponse("/", status_code=303)
-
-
-@app.post("/formando/{token}/arquivar-papel")
-def arquivar_papel(token: str, nota: str = Form(""),
-                   _admin: None = Depends(require_admin)):
-    """Marca um formando como tendo assinado em papel.
-
-    Não gera PDF nem assinatura. O contrato de papel é o documento; isto só
-    diz à coordenação que esta linha não está à espera de nada.
-    """
-    lote_id, _, f = store.obter_formando(token)
-    if not f:
-        return HTMLResponse("Formando não encontrado.", status_code=404)
-    store.marcar_arquivado_papel(token, nota.strip() or "assinado em papel")
-    return RedirectResponse(f"/lote/{lote_id}", status_code=303)
-
-
-@app.get("/lote/{lote_id}", response_class=HTMLResponse)
-def dashboard(request: Request, lote_id: str, _admin: None = Depends(require_admin)):
-    lote = store.obter_lote(lote_id)
-    if not lote:
-        return HTMLResponse("Lote não encontrado", status_code=404)
-    base = _base_url(request)
-    linhas = []
-    for token, f in lote["formandos"].items():
-        linhas.append({**f, "token": token,
-                       "link": f"{base}/assinar/{token}"})
-    return web.TemplateResponse(request, "dashboard.html", {
-        "lote_id": lote_id, "curso": lote["curso"],
-        "origem": lote.get("origem", "normal"), "linhas": linhas})
-
-
-@app.get("/assinar/{token}", response_class=HTMLResponse)
-def pagina_assinar(request: Request, token: str):
-    lote_id, lote, f = store.obter_formando(token)
-    if not f:
-        return HTMLResponse("Contrato não encontrado.", status_code=404)
-    if f["estado"] == "assinado":
-        return web.TemplateResponse(request, "obrigado.html", {"formando": f,
-                                     "ja": True})
-    html_contrato = contract.render_html(lote["curso"], f, tipo=f.get("tipo_contrato", "B2C"))
-    if f.get("tipo_contrato", "B2C").upper() == "B2C":
-        consentimento_txt = (
-            "Declaro que li e aceito as cláusulas do contrato e consinto a "
-            "assinatura eletrónica do mesmo, com o mesmo valor de uma assinatura "
-            "manuscrita. Solicito expressamente o início da formação durante o "
-            "prazo de livre resolução de 14 dias, ficando ciente de que, se vier a "
-            "resolver o contrato, pagarei o valor proporcional ao já prestado.")
-    else:
-        consentimento_txt = (
-            "Declaro que li e aceito as cláusulas do contrato e consinto a "
-            "assinatura eletrónica do mesmo, com o mesmo valor de uma assinatura "
-            "manuscrita, em representação da entidade adquirente da formação.")
-    return web.TemplateResponse(request, "assinar.html", {"token": token, "formando": f,
-        "curso": lote["curso"], "contrato_html": html_contrato,
-        "consentimento_txt": consentimento_txt})
-
-
-@app.post("/assinar/{token}")
-async def submeter_assinatura(request: Request, token: str,
-                              assinatura: str = Form(...),
-                              consentimento: str = Form("")):
-    lote_id, lote, f = store.obter_formando(token)
-    if not f:
-        return HTMLResponse("Contrato não encontrado.", status_code=404)
-    if f["estado"] == "assinado":
-        return RedirectResponse(f"/assinar/{token}", status_code=303)
-    if consentimento != "on" or not assinatura.startswith("data:image"):
-        return HTMLResponse("Falta consentimento ou assinatura.", status_code=400)
-
-    ip = request.client.host if request.client else None
-    doc_id = secrets.token_hex(8).upper()
-    aud = contract.construir_auditoria(lote["curso"], f, assinatura, doc_id, ip)
-
-    html = contract.render_html(lote["curso"], f, tipo=f.get("tipo_contrato", "B2C"),
-                                assinatura_formando=assinatura, auditoria=aud)
-    nome_seguro = "".join(c for c in f["nome"] if c.isalnum() or c in " _-").strip().replace(" ", "_")
-    nome_ficheiro = f"contrato_{nome_seguro}_{doc_id}.pdf"
-
-    pdf_bytes = contract.gerar_pdf_bytes(html)
-    pdf_path = pdfstore.guardar_pdf(lote_id, nome_ficheiro, pdf_bytes)
-    drive_id = drive.arquivar(pdf_bytes, lote["curso"]["nome"], nome_ficheiro,
-                              pdf_path)
-
-    store.marcar_assinado(token, assinado_em=aud["data"], ip=ip,
-                          hash=aud["hash"], doc_id=doc_id,
-                          pdf_path=pdf_path, drive_file_id=drive_id)
-
-    return web.TemplateResponse(request, "obrigado.html", {"formando": f, "ja": False})
-
-
-@app.get("/pdf/{token}")
-def baixar_pdf(token: str):
-    _, _, f = store.obter_formando(token)
-    if not f or not f.get("pdf_path"):
-        return HTMLResponse("Sem PDF.", status_code=404)
-    nome = Path(f["pdf_path"]).name
-    return Response(
-        content=pdfstore.ler_pdf(f["pdf_path"]),
-        media_type="application/pdf",
-        headers={"Content-Disposition": f'attachment; filename="{nome}"'},
-    )
-
-
-# --- API: motor de PDF para o Sportrail Dashboard --------------------------
-# O dashboard (Next.js) trata de dados/login/UI e delega SÓ a geração do PDF a
-# este serviço, que reutiliza as cláusulas jurídicas e o WeasyPrint. Chamada
-# servidor-a-servidor, protegida por segredo partilhado PDF_API_TOKEN (Railway).
+# --- Autenticação dos endpoints --------------------------------------------
+# Segredo partilhado com o dashboard (lá chama-se CONTRATOS_PDF_TOKEN). Estes
+# endpoints geram documentos com dados pessoais a partir do que lhes mandam:
+# sem segredo configurado, não abrem a ninguém.
 _pdf_api_token = os.environ.get("PDF_API_TOKEN")
+
+if not _pdf_api_token:
+    print("[AVISO] PDF_API_TOKEN não definido — os endpoints respondem 503 "
+          "até o definires (ver .env.example).")
 
 
 def _exigir_token_api(x_api_token: Optional[str]):
@@ -338,6 +72,12 @@ def _exigir_token_api(x_api_token: Optional[str]):
         raise HTTPException(status_code=503, detail="PDF_API_TOKEN não configurado.")
     if not x_api_token or not secrets.compare_digest(x_api_token, _pdf_api_token):
         raise HTTPException(status_code=401, detail="Token de API inválido.")
+
+
+class ContratoPreviewIn(BaseModel):
+    curso: dict
+    formando: dict
+    tipo: str = "B2C"
 
 
 class GerarContratoIn(BaseModel):
@@ -353,6 +93,23 @@ class RenderPdfIn(BaseModel):
     nome: Optional[str] = None     # só para diagnóstico; não afeta o render
 
 
+# --- API: contrato por assinar, em HTML ------------------------------------
+# A página de assinatura vive no dashboard, mas o texto do contrato e a
+# declaração de consentimento são texto jurídico e têm de ter uma fonte só.
+# Devolve os dois já hidratados, sem assinatura e sem auditoria: é o que o
+# formando lê antes de assinar.
+@app.post("/api/contrato-preview")
+def api_contrato_preview(dados: ContratoPreviewIn,
+                         x_api_token: Optional[str] = Header(default=None)):
+    _exigir_token_api(x_api_token)
+    return {
+        "html": contract.render_html(dados.curso, dados.formando,
+                                     tipo=dados.tipo),
+        "consentimento": clausulas.texto_consentimento(dados.tipo),
+    }
+
+
+# --- API: contrato assinado, em PDF ----------------------------------------
 @app.post("/api/gerar-contrato")
 def api_gerar_contrato(dados: GerarContratoIn,
                        x_api_token: Optional[str] = Header(default=None)):
@@ -378,9 +135,8 @@ def api_gerar_contrato(dados: GerarContratoIn,
 # modelo de dados que os alimenta) e manda-nos o HTML já hidratado. Aqui só
 # acontece a parte que precisa de Python: o WeasyPrint.
 #
-# Ao contrário de /api/gerar-contrato, o HTML vem de fora e não é de confiar —
-# ver contract.gerar_pdf_bytes_isolado para o porquê do isolamento. Stateless:
-# não escreve no Supabase nem no Drive; quem persiste é o dashboard.
+# Ao contrário dos outros dois, o HTML vem de fora e não é de confiar — ver
+# contract.gerar_pdf_bytes_isolado para o porquê do isolamento.
 @app.post("/api/render-pdf")
 def api_render_pdf(dados: RenderPdfIn,
                    x_api_token: Optional[str] = Header(default=None)):

@@ -50,37 +50,32 @@ falta — renderizar HTML arbitrário para PDF, isolada.
 - [x] Validado localmente com o verify.py de main, do PR #1 e do PR #2
 - [x] Confirmar job verde no separador Checks do PR (#3, run 1: success)
 
-## Sessão 8 — minuta aprovada pela DGERT + export real do WooCommerce + backfill
+## Sessão 8 — minuta aprovada pela DGERT
 
-Entraram dois ficheiros do Bruno: a **minuta do contrato aprovada pela DGERT** no
-pedido de certificação, e o **export de formandos tal como sai do WooCommerce**
-(vigente desde 2024). O texto legal que estava em `clausulas.py` era rascunho
-inventado; o parser de Excel não conseguia sequer ler o export real.
+Entrou a **minuta do contrato aprovada pela DGERT** no pedido de certificação.
+O texto legal que estava em `clausulas.py` era rascunho inventado, com um
+comentário por cima a dar-se como validado.
 
-### A. Cláusulas — passar a minuta aprovada a fonte de verdade
 - [x] `core/clausulas.py`: corpo do contrato = texto da minuta V1.2024, literal
 - [x] Livre resolução (B2C) sai do corpo aprovado e passa a **adenda** depois das
       assinaturas — acrescentar cláusulas ao corpo alterava o que a DGERT aprovou
-- [x] Preservar as anomalias de numeração da minuta (Cl. 3 começa em "3.", não há
-      Cl. 9.ª) e documentar; corrigi-las é decisão do jurista, não de quem programa
-- [x] `templates/contrato.html`: preâmbulo, alíneas a)–g), fecho "local, data",
-      rodapé "Contrato de Formação Sportrail V1. 2024 — x/y"
+- [x] Preservar as anomalias de numeração da minuta (Cl. 3.ª começa em "3.", não
+      há Cl. 9.ª); corrigi-las é decisão do jurista, não de quem programa
+- [x] `templates/contrato.html`: preâmbulo com documento de identificação e
+      residência, alíneas a)–g), fecho "local, data", rodapé com a versão
+- [x] `texto_consentimento` B2C passa a referir a adenda (é lá que a livre
+      resolução vive)
+- [x] `verify.py`: âncoras de texto por cláusula, adenda ausente do B2B, rodapé
 
-### B. Excel — export real do WooCommerce
-- [x] Nome composto de `First Name (Billing)` + `Last Name (Billing)`
-- [x] Novas colunas: `CC` (documento de identificação — é o que a minuta pede),
-      `cedula`, `clube`, `Product Name`, `Order Total Amount`
-- [x] `clube` preenchido NÃO decide B2B automaticamente (decisão do jurista)
-- [x] Manter compatibilidade com o formato antigo (`nome`, `email`, ...)
+### Parser do WooCommerce e backfill — mudaram de casa
+O PR #6 tirou o estado a esta app enquanto isto era escrito. O parser do export,
+o backfill do histórico e as tabelas estão no `sportrail-dashboard`:
+`src/lib/contratos/excel.ts`, `/contratos/backfill`, migração `0007`.
 
-### C. Backfill de todas as formações
-- [x] Um export com várias formações → um lote por `Product Name`
-- [x] Catálogo de cursos (modalidade/duração/datas) — o WooCommerce não os tem;
-      pedidos ao coordenador no preview, nunca inventados
-- [x] Estado `arquivado_papel`: quem já assinou em papel fica registado sem
-      fabricar assinatura nenhuma
-- [x] `origem` no lote (normal | backfill)
-
-### D. Verificação
-- [x] `verify.py`: fidelidade à minuta, parsing WooCommerce, agrupamento, adenda
-- [ ] Dashboard: mesmo parser (`excel.ts`), migração das colunas novas, UI backfill
+### A decidir com o jurista
+- [ ] As anomalias de numeração da minuta (Cl. 3.ª, Cl. 9.ª em falta)
+- [ ] Seguro em ações online: a minuta dá-o como direito do formando (Cl. 3.ª,
+      alínea b) sem distinguir online de presencial, enquanto a regra antiga do
+      CLAUDE.md — escrita para o rascunho — dizia "online → sem seguro"
+- [ ] A adenda B2C como forma de acrescentar a livre resolução sem tocar no
+      articulado aprovado

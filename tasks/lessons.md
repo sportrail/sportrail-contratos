@@ -70,7 +70,55 @@
 - O fallback é a wordmark tipográfica que já lá estava. Assim o contrato sai na
   mesma sem o ficheiro, em vez de rebentar ou sair com um buraco.
 
-# Sessão 8 — a minuta aprovada e o export real
+---
+
+## 2026-09-18 — Um teste que valida código contra a sua própria suposição não prova nada
+
+**O que aconteceu.** Durante meses, nenhum formando conseguiu assinar um
+contrato. Ninguém reparou. O `verify.py` estava verde a cada commit.
+
+**Porquê.** Este repo tinha um `supabase_schema.sql` que declarava
+`contract_batches` com `id text` e uma coluna `curso jsonb`. O `core/store.py`
+foi escrito contra esse schema. O `verify.py` testava o store contra um duplo
+em memória e — a parte que parecia cuidadosa — comparava as colunas escritas
+com as declaradas **nesse mesmo ficheiro**.
+
+Só que o schema nunca chegou a ser aplicado. A base de dados já tinha as
+tabelas criadas pela migration `0003` do dashboard, com `id uuid`, `user_id` e
+o curso em colunas separadas. O `create table if not exists` encontrou-as e não
+fez nada — sem erro, sem aviso.
+
+Resultado: o teste comparava o store com o schema que o store assumia. Os dois
+concordavam perfeitamente. E ambos estavam errados sobre a realidade.
+
+**O que o escondeu.** O que o dashboard consome desta app todos os dias
+(`/api/gerar-contrato`, `/api/render-pdf`) é sem estado e nunca toca na base de
+dados. Os PDF saíam, o dossier funcionava, tudo parecia bem. O único caminho
+partido era o que ninguém percorre a testar outra coisa: um formando a abrir o
+link que recebeu.
+
+**A lição, que não é "escrever mais testes".** Um teste que lê a definição do
+sistema a partir do próprio código do sistema mede consistência interna, não
+correção. Vale quase nada contra um desvio entre o código e o mundo.
+
+Onde há um schema, a fonte de verdade é a base de dados, não um ficheiro `.sql`
+no repo que *talvez* tenha sido aplicado. Se não se consegue testar contra a
+base de dados a sério, mais vale saber que não se está a testar isso do que ter
+um teste verde a dizer que sim.
+
+**E há um sinal que se ignorou:** duas aplicações declaravam as mesmas tabelas
+com formas diferentes, ambas a dizer que apontavam para o mesmo projeto
+Supabase. Isso é impossível por construção — uma das duas tinha de estar
+errada. Estava escrito nos dois repos, em texto simples, e passou.
+
+**Correção:** o estado saiu deste repo (ficou só o motor de contratos e de
+PDF). A página de assinatura passou para o dashboard, onde as tabelas estão
+mesmo. Detalhe em `tasks/bug-assinatura.md`, no dashboard.
+
+---
+
+## 2026-09-18 — A minuta aprovada pela DGERT
+
 - **O texto legal que estava no repo era rascunho inventado.** Havia um comentário a
   dizer "dado como validado pela Sportrail" por cima de cláusulas que ninguém tinha
   aprovado. Quando o documento real apareceu, não coincidia em nada: outra estrutura,
@@ -85,17 +133,27 @@
   na minuta e é obrigatória para consumidores. Meter cláusulas no articulado resolvia o
   problema jurídico e criava outro: o contrato deixava de ser o aprovado. Foi para
   adenda, depois das assinaturas, e o rodapé "V1. 2024" não a acompanha.
-- **O parser rejeitava o ficheiro real desde sempre.** O export do WooCommerce não tem
-  coluna `nome` — tem `First Name (Billing)` e `Last Name (Billing)`. O parser exigia
-  `nome` e `email` e dava "o Excel tem de ter as colunas nome e email" ao ficheiro que
-  é o input verdadeiro do sistema. Escreveu-se um export sintético com a forma exata do
-  real no verify.py; o exemplo à mão que lá estava validava um formato que ninguém usa.
-- **Um número lido de Excel não é uma string.** `str(233385169.0)` dá "233385169.0" num
-  NIF, e `str(150)` dá "€ 150" num valor de contrato. Ambos saíam impressos assim.
-- **Os testes de guarda pagaram-se todos nesta sessão.** As rotas novas acusaram "por
-  classificar" no teste de auth, as colunas novas acusaram "a mais" no teste de schema
-  (o leitor só via `create table`, não os `alter table` das migrações) e o `origem` novo
-  acusou na forma de retorno do `obter_lote`. Quatro falhas, quatro coisas reais.
-- **O backfill não pode fechar linhas com assinaturas inventadas.** Quem já assinou em
-  papel fica em `arquivado_papel`: sem assinatura, sem PDF, sem hash. Há um teste a
-  garantir que continua assim — é a única parte disto onde um atalho seria falsificação.
+- **Âncoras de texto são o teste que este ficheiro precisa.** Contar cláusulas não
+  chega: o corpo pode sair truncado com a contagem certa. O verify.py procura no TEXTO
+  DO PDF uma frase inconfundível por cláusula — se uma cai, o teste sabe qual.
+
+---
+
+## 2026-09-18 — Trabalhei contra um `main` que já não existia
+
+**O que aconteceu.** Comecei esta sessão de um clone tirado antes do merge do
+PR #6, que tirou o estado a esta app. Reescrevi `core/excel_parser.py`,
+`core/store.py`, o `supabase_schema.sql` e três templates — ficheiros que o
+`main` tinha apagado quinze minutos antes. Fiz `make verify` verde, abri o PR, e
+só ao ler o CI é que dei pelo desencontro: metade do meu diff ressuscitava a
+metade que tinha acabado de ser deliberadamente removida.
+
+**A lição.** Verde localmente não diz nada sobre a base. Antes de abrir um PR,
+`git fetch origin main` e olhar para `HEAD..origin/main` — sobretudo num repo com
+PRs a andar no mesmo dia. O clone da sessão é uma fotografia, não o repositório.
+
+**O que se salvou.** A parte do trabalho que era mesmo deste repo — a minuta
+aprovada — sobreviveu inteira. O parser e o backfill mudaram de casa para o
+dashboard, que é onde o estado passou a viver, e é lá que estão. Isto foi barato
+porque as duas metades já estavam separadas por módulo; se estivessem entrelaçadas
+no mesmo ficheiro, o desencontro custava a sessão toda.

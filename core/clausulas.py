@@ -362,3 +362,32 @@ def precisa_formulario_resolucao(tipo: str) -> bool:
 
 def precisa_adenda(tipo: str) -> bool:
     return tipo.upper() == "B2C"
+
+
+def texto_consentimento(tipo: str = "B2C") -> str:
+    """
+    Texto que o formando aceita ao assinar. É a declaração que dá valor
+    jurídico à assinatura eletrónica simples (eIDAS) e, em B2C, o pedido
+    expresso do art. 4.º do DL 24/2014 para iniciar a formação antes de
+    terminado o prazo de livre resolução.
+
+    Vive aqui, com as cláusulas, e não na app que mostra a página: é texto
+    legal, tem de ter uma fonte só. Quem desenha a página de assinatura
+    pede-o por `/api/contrato-preview`.
+
+    O B2C fala da adenda porque é lá que a livre resolução vive: a minuta
+    aprovada pela DGERT não a tem, e acrescentá-la ao articulado alterava o
+    documento aprovado.
+    """
+    if tipo.upper() == "B2C":
+        return (
+            "Declaro que li e aceito as cláusulas do contrato e da adenda de "
+            "livre resolução, e consinto a assinatura eletrónica de ambos, com "
+            "o mesmo valor de uma assinatura manuscrita. Solicito expressamente "
+            f"o início da formação durante o prazo de livre resolução de "
+            f"{PRAZO_LIVRE_RESOLUCAO_DIAS} dias, ficando ciente de que, se vier "
+            "a resolver o contrato, pagarei o valor proporcional ao já prestado.")
+    return (
+        "Declaro que li e aceito as cláusulas do contrato e consinto a "
+        "assinatura eletrónica do mesmo, com o mesmo valor de uma assinatura "
+        "manuscrita, em representação da entidade adquirente da formação.")
