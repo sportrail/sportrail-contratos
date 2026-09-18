@@ -6,7 +6,9 @@ from jinja2 import Environment, FileSystemLoader
 from weasyprint import HTML
 from weasyprint.urls import URLFetcher
 
-from .clausulas import (ENTIDADE, clausulas, precisa_formulario_resolucao,
+from .clausulas import (ENTIDADE, VERSAO_MINUTA, FECHO_MINUTA, corpo_contrato,
+                        adenda_livre_resolucao, precisa_adenda,
+                        precisa_formulario_resolucao,
                         PRAZO_LIVRE_RESOLUCAO_DIAS)
 
 BASE = Path(__file__).resolve().parent.parent
@@ -42,17 +44,29 @@ def _logo():
 
 
 def render_html(curso, formando, *, tipo="B2C", assinatura_formando=None,
-                auditoria=None):
-    """Devolve o HTML do contrato hidratado para a variante B2C ou B2B."""
+                auditoria=None, local_assinatura=None, data_assinatura=None):
+    """Devolve o HTML do contrato hidratado para a variante B2C ou B2B.
+
+    O corpo é a minuta aprovada pela DGERT, igual nas duas variantes. O que
+    distingue o B2C é a ADENDA de livre resolução (mais o formulário anexo),
+    acrescentada depois das assinaturas — nunca dentro do articulado aprovado.
+    """
     tpl = _env.get_template("contrato.html")
-    online = curso.get("modalidade", "").lower().startswith("online") \
-        or curso.get("modalidade", "").lower().startswith("dist")
+    tipo = tipo.upper()
     return tpl.render(
         entidade=ENTIDADE,
+        versao_minuta=VERSAO_MINUTA,
         curso=curso,
         formando=formando,
-        tipo=tipo.upper(),
-        clausulas=clausulas(online=online, tipo=tipo),
+        tipo=tipo,
+        corpo=corpo_contrato(curso),
+        fecho=FECHO_MINUTA,
+        adenda=[{"titulo": t, "texto": x} for t, x in adenda_livre_resolucao()]
+               if precisa_adenda(tipo) else None,
+        # Local e data do fecho da minuta. Sem assinatura ainda -> ficam os
+        # tracejados, que é como a minuta em papel sai para assinar à mão.
+        local_assinatura=local_assinatura or ENTIDADE["morada"].split(",")[0],
+        data_assinatura=data_assinatura or (auditoria or {}).get("data", "").split(" ")[0],
         assinatura_diretora=_assinatura_diretora_data_uri(),
         logo=_logo(),
         assinatura_formando=assinatura_formando,

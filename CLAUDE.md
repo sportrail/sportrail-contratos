@@ -84,11 +84,11 @@ Frankfurt, Docker). `render.yaml` + `Dockerfile`. No plano free adormece após
 ```
 app.py                 4 rotas: 3 endpoints /api/* + /health
 core/
-  clausulas.py         entidade + cláusulas em 3 CAMADAS + variantes B2C/B2B
+  clausulas.py         entidade + MINUTA APROVADA pela DGERT + adenda B2C
                        + texto_consentimento()
   contract.py          hidrata template -> HTML -> PDF (weasyprint) + auditoria/hash
 templates/
-  contrato.html        o contrato (merge fields, brand) + anexo livre resolução
+  contrato.html        o contrato (minuta aprovada) + adenda B2C + anexo
 static/assinatura_diretora.png   SUBSTITUIR pela assinatura real
 static/logo_sportrail.svg        logótipo do cabeçalho (vetorial, do EPS da marca);
                        sem ficheiro, cai para a wordmark tipográfica
@@ -111,13 +111,36 @@ em `data:` URI. O mount `/static` saiu com as páginas web.
 - Quem escolhe a variante é o dashboard (default do lote, com override por
   linha no Excel). Aqui só se recebe `tipo` e se obedece.
 
-### Cláusulas em 3 camadas (`core/clausulas.py`)
-1. Identificação/DTP — no quadro de destaque do template (auditável DGERT).
-2. Lei do consumidor (DL 24/2014) — só B2C.
-3. Contrato geral — objeto, pagamento, certificação SIGO, RGPD, etc.
+### O corpo do contrato é a minuta APROVADA (`core/clausulas.py`)
+`MINUTA_APROVADA` é transcrição literal da minuta "Contrato de Formação
+Sportrail V1. 2024", aprovada pela DGERT no pedido de certificação. **Não se
+reescreve, não se renumera, não se "melhora" a redação.** Se o documento gerado
+deixar de coincidir com ela, a certificação deixa de cobrir o que a Sportrail faz
+assinar. O `verify.py` tem âncoras de texto que falham se uma cláusula cair.
 
-`texto_consentimento()` vive aqui, e não na página que o mostra, pela mesma
-razão: é texto jurídico.
+Duas anomalias vêm da própria minuta e estão lá DE PROPÓSITO (com teste a
+garanti-lo): a Cláusula 3.ª numera os pontos "3." e "4.", e não existe Cláusula
+9.ª — salta da 8.ª para a 10.ª. Corrigi-las é decisão do jurista sobre um
+documento aprovado.
+
+As 3 camadas continuam a valer, mudou a origem do conteúdo:
+1. Identificação/DTP — preâmbulo + quadro de destaque (auditável DGERT).
+2. Lei do consumidor (DL 24/2014) — só B2C, e só em **ADENDA**, depois das
+   assinaturas. A minuta aprovada não tem livre resolução; acrescentar cláusulas
+   ao articulado alterava o documento aprovado. A adenda também não leva o
+   rodapé "V1. 2024" — não foi isso que a DGERT viu.
+3. Corpo do contrato — a minuta aprovada, igual em B2C e B2B.
+
+### Excel e backfill vivem no dashboard
+Esta app já não lê Excel nem guarda estado. O parser do export do WooCommerce, o
+backfill do histórico e as tabelas estão no `sportrail-dashboard`
+(`src/lib/contratos/excel.ts`, `/contratos/backfill`, migração `0007`). Aqui só
+chega o `formando` já hidratado, por `/api/gerar-contrato`.
+
+Os campos que a minuta aprovada precisa e que o dashboard passa a mandar:
+`doc_identificacao` (o `CC` do export — a minuta identifica o formando pelo
+documento, não pelo NIF), `validade_documento`, `concelho`, `distrito`, e ainda
+`cedula` e `clube` para o quadro de destaque.
 
 ### Guarda-jurídica (CRÍTICO)
 - Todo o texto legal marcado com `[JURISTA]` é RASCUNHO e tem de ser validado
@@ -125,7 +148,12 @@ razão: é texto jurídico.
 - `[EMAIL DA ENTIDADE]` e afins são placeholders a preencher.
 - Quem programa NÃO decide se um profissional individual conta como consumidor
   (B2C) ou não — isso é decisão do jurista; a app só tem de suportar ambos.
-- Formação online → sem cláusula de seguro. Presencial → com seguro.
+  Em concreto: a coluna `clube` preenchida no export **não** torna a linha B2B.
+- O seguro: a minuta aprovada dá o seguro contra acidentes como direito do
+  formando (Cl. 3.ª, alínea b), **sem distinguir online de presencial**. Está
+  assim porque é o texto aprovado. A regra "online → sem seguro" que esta secção
+  tinha aplicava-se ao rascunho anterior; está PENDENTE de decisão do jurista
+  (ver tasks/todo.md, Sessão 8).
 
 ### Marca Sportrail (fonte de verdade; se em dúvida, PERGUNTAR antes de criar)
 - Cores: vermelho `#ED1C24` (hover `#c41920`), preto `#0B0A0F`, card `#13121A`,
@@ -136,7 +164,8 @@ razão: é texto jurídico.
   redesenhar o logótipo: se o ficheiro não estiver lá, usar a wordmark
   tipográfica e PERGUNTAR.
 - NIF Sportrail: 514144785. Tratar o formando por "tu" nos textos.
-- Diretora Pedagógica atual: Liliana Fernandes.
+- Diretora Pedagógica atual: Liliana Fernandes. Na minuta aprovada outorga como
+  **Gerente**, com o nome completo "Liliana Regina Fernandes".
 
 ## Workflow (seguir nesta ordem)
 1. **Plan First** — escreve/atualiza `tasks/todo.md` antes de mexer em código.
@@ -155,7 +184,10 @@ razão: é texto jurídico.
 - [x] `/api/contrato-preview` — contrato por assinar, em HTML.
 - [x] Fontes da marca na imagem (antes todo o PDF saía em DejaVu, sem erro).
 - [x] Sair do negócio do estado: o que tinha estado passou para o dashboard.
-- [ ] **Colar o texto jurídico validado por cima dos blocos `[JURISTA]`.**
+- [x] Corpo do contrato = minuta aprovada pela DGERT (deixou de haver rascunho).
+- [ ] Jurista: confirmar as anomalias de numeração da minuta (Cl. 3.ª, Cl. 9.ª).
+- [ ] Jurista: seguro em ações online (a minuta aprovada não distingue).
+- [ ] Jurista: validar a adenda B2C como forma de acrescentar a livre resolução.
 - [ ] Contrato de formador (além do de formando).
 
 ## Convenções

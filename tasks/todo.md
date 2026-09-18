@@ -49,3 +49,33 @@ falta — renderizar HTML arbitrário para PDF, isolada.
 - [x] apt no runner = mesma lista do Dockerfile (+ shared-mime-info); sem segredos
 - [x] Validado localmente com o verify.py de main, do PR #1 e do PR #2
 - [x] Confirmar job verde no separador Checks do PR (#3, run 1: success)
+
+## Sessão 8 — minuta aprovada pela DGERT
+
+Entrou a **minuta do contrato aprovada pela DGERT** no pedido de certificação.
+O texto legal que estava em `clausulas.py` era rascunho inventado, com um
+comentário por cima a dar-se como validado.
+
+- [x] `core/clausulas.py`: corpo do contrato = texto da minuta V1.2024, literal
+- [x] Livre resolução (B2C) sai do corpo aprovado e passa a **adenda** depois das
+      assinaturas — acrescentar cláusulas ao corpo alterava o que a DGERT aprovou
+- [x] Preservar as anomalias de numeração da minuta (Cl. 3.ª começa em "3.", não
+      há Cl. 9.ª); corrigi-las é decisão do jurista, não de quem programa
+- [x] `templates/contrato.html`: preâmbulo com documento de identificação e
+      residência, alíneas a)–g), fecho "local, data", rodapé com a versão
+- [x] `texto_consentimento` B2C passa a referir a adenda (é lá que a livre
+      resolução vive)
+- [x] `verify.py`: âncoras de texto por cláusula, adenda ausente do B2B, rodapé
+
+### Parser do WooCommerce e backfill — mudaram de casa
+O PR #6 tirou o estado a esta app enquanto isto era escrito. O parser do export,
+o backfill do histórico e as tabelas estão no `sportrail-dashboard`:
+`src/lib/contratos/excel.ts`, `/contratos/backfill`, migração `0007`.
+
+### A decidir com o jurista
+- [ ] As anomalias de numeração da minuta (Cl. 3.ª, Cl. 9.ª em falta)
+- [ ] Seguro em ações online: a minuta dá-o como direito do formando (Cl. 3.ª,
+      alínea b) sem distinguir online de presencial, enquanto a regra antiga do
+      CLAUDE.md — escrita para o rascunho — dizia "online → sem seguro"
+- [ ] A adenda B2C como forma de acrescentar a livre resolução sem tocar no
+      articulado aprovado

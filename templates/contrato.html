@@ -3,124 +3,215 @@
 <head>
 <meta charset="utf-8">
 <style>
-  @page { size: A4; margin: 22mm 20mm 24mm 20mm; }
-  * { font-family: "DejaVu Sans", "DM Sans", Arial, sans-serif; }
+  /* Rodapé corrido igual ao da minuta aprovada ("... V1. 2024   3/5"). */
+  @page {
+    size: A4; margin: 20mm 20mm 20mm 20mm;
+    @bottom-left  { content: element(rodape-versao); }
+    @bottom-right { content: counter(page) "/" counter(pages);
+                    font-size: 8pt; color: #777; }
+  }
+  * { font-family: "DM Sans", "DejaVu Sans", Arial, sans-serif; }
   body { color: #0B0A0F; font-size: 10.5pt; line-height: 1.5; }
-  .cabecalho { border-bottom: 2px solid #ED1C24; padding-bottom: 8px; margin-bottom: 18px; }
+
+  .rodape-corrido { position: running(rodape-versao); font-size: 8pt; color: #777; }
+
+  .cabecalho { border-bottom: 2px solid #ED1C24; padding-bottom: 8px; margin-bottom: 16px; }
   .marca { font-size: 20pt; font-weight: 800; letter-spacing: 1px; color: #0B0A0F; }
   .marca span { color: #ED1C24; }
   /* Logótipo: altura fixa para não depender das dimensões do ficheiro. */
   .logo, .logo svg, .logo img { height: 13mm; width: auto; display: block; }
   .ent { font-size: 8.5pt; color: #555; margin-top: 2px; }
+
   h1 { font-size: 14pt; text-align: center; margin: 6px 0 2px; text-transform: uppercase; letter-spacing: .5px; }
-  .sub { text-align: center; font-size: 9pt; color: #777; margin-bottom: 16px; }
-  .partes { background: #FAF8F5; border: 1px solid #e7e2da; padding: 12px 14px; margin-bottom: 14px; font-size: 9.5pt; }
-  .partes b { color: #ED1C24; }
-  .clausula { margin-bottom: 11px; }
-  .clausula .t { font-weight: 700; text-transform: uppercase; font-size: 9.5pt; margin-bottom: 2px; }
-  .destaque { background: #fff6f6; border-left: 3px solid #ED1C24; padding: 8px 12px; margin: 12px 0; font-size: 9.5pt; }
+  .sub { text-align: center; font-size: 9pt; color: #777; margin-bottom: 14px; }
+  .numero-contrato { text-align: center; font-size: 9.5pt; color: #555; margin-bottom: 14px; }
+
+  .preambulo { text-align: justify; margin-bottom: 14px; }
+  .preambulo b { color: #0B0A0F; }
+  .campo { border-bottom: 1px solid #0B0A0F; padding: 0 3px; }
+  .campo-vazio { display: inline-block; min-width: 130px; border-bottom: 1px solid #0B0A0F; }
+
+  .destaque { background: #FAF8F5; border-left: 3px solid #ED1C24; padding: 8px 12px; margin: 12px 0 16px; font-size: 9.5pt; }
   .destaque table { width: 100%; border-collapse: collapse; }
-  .destaque td { padding: 2px 4px; }
-  .destaque td.k { color: #777; width: 38%; }
+  .destaque td { padding: 2px 4px; vertical-align: top; }
+  .destaque td.k { color: #777; width: 34%; }
   .destaque td.v { font-weight: 700; }
-  .assinaturas { margin-top: 26px; display: flex; justify-content: space-between; }
+  .destaque .nota { color: #777; font-size: 8pt; margin-top: 6px; }
+
+  .clausula { margin-bottom: 12px; page-break-inside: avoid; }
+  .clausula .num { font-weight: 700; text-transform: uppercase; font-size: 10pt; text-align: center; }
+  .clausula .tit { font-weight: 700; font-size: 10pt; text-align: center; margin-bottom: 5px; }
+  .ponto { display: flex; gap: 6px; margin-bottom: 4px; text-align: justify; }
+  .ponto .n { flex: 0 0 auto; }
+  .alinea { display: flex; gap: 6px; margin: 3px 0 3px 18px; text-align: justify; }
+  .alinea .l { flex: 0 0 auto; }
+
+  .fecho { margin-top: 18px; text-align: justify; }
+  .local-data { margin-top: 20px; font-size: 10.5pt; }
+
+  .assinaturas { margin-top: 24px; display: flex; justify-content: space-between; page-break-inside: avoid; }
   .bloco-ass { width: 46%; text-align: center; }
   .bloco-ass img { height: 52px; margin-bottom: 4px; }
   .linha-ass { border-top: 1px solid #0B0A0F; padding-top: 4px; font-size: 9pt; }
   .papel { color: #777; font-size: 8pt; }
-  .auditoria { margin-top: 22px; border-top: 1px dashed #bbb; padding-top: 8px; font-size: 7.5pt; color: #888; }
+
+  .auditoria { margin-top: 20px; border-top: 1px dashed #bbb; padding-top: 8px; font-size: 7.5pt; color: #888; }
   .auditoria b { color: #555; }
-  .placeholder-leg { color: #b00; font-style: italic; }
+
+  .adenda-clausula { margin-bottom: 11px; text-align: justify; }
+  .adenda-clausula .t { font-weight: 700; text-transform: uppercase; font-size: 9.5pt; margin-bottom: 2px; }
 </style>
 </head>
 <body>
+
+{# Rodapé corrido. O elemento mais recente no fluxo é o que sai nas páginas
+   seguintes — por isso o corpo leva a versão da minuta aprovada e a adenda
+   troca-o mais abaixo. A adenda NÃO faz parte da V1. 2024; rotulá-la como tal
+   era dizer que a DGERT aprovou um texto que não viu. #}
+<div class="rodape-corrido">{{ versao_minuta }}</div>
+
+{% macro cabecalho(legenda) -%}
   <div class="cabecalho">
     {% if logo %}
       {% if logo.formato == "svg" %}<div class="logo">{{ logo.conteudo }}</div>
       {% else %}<div class="logo"><img src="{{ logo.conteudo }}" alt="Sportrail"></div>{% endif %}
     {% else %}<div class="marca">SPORT<span>RAIL</span></div>{% endif %}
-    <div class="ent">Sportrail, Lda. &middot; NIF {{ entidade.nif }} &middot; Entidade Formadora Certificada DGERT &middot; {{ entidade.morada }}</div>
+    <div class="ent">{{ legenda }}</div>
   </div>
+{%- endmacro %}
 
-  <h1>Contrato de Formação Profissional</h1>
-  <div class="sub">Ao abrigo da Portaria n.º 851/2010, de 6 de setembro</div>
-
-  <div class="partes">
-    Entre <b>Sportrail, Lda.</b>, NIF {{ entidade.nif }}, adiante designada <b>Entidade Formadora</b>,
-    e <b>{{ formando.nome }}</b>{% if formando.nif %}, NIF {{ formando.nif }}{% endif %}, adiante designado(a) <b>Formando(a)</b>,
-    é celebrado o presente contrato de formação, que se rege pelas cláusulas seguintes:
-  </div>
-
-  <div class="destaque">
-    <table>
-      <tr><td class="k">Ação de formação</td><td class="v">{{ curso.nome }}</td></tr>
-      <tr><td class="k">Modalidade</td><td class="v">{{ curso.modalidade }}</td></tr>
-      <tr><td class="k">Duração</td><td class="v">{{ curso.duracao }}</td></tr>
-      <tr><td class="k">Data de início</td><td class="v">{{ curso.data_inicio }}</td></tr>
-      <tr><td class="k">Data de conclusão</td><td class="v">{{ curso.data_conclusao }}</td></tr>
-      <tr><td class="k">Valor pago</td><td class="v">{{ formando.valor_pago }}</td></tr>
-    </table>
-  </div>
-
-  <!-- ATENCAO: texto legal abaixo e RASCUNHO. Substituir pelas 8 clausulas
-       validadas do generate_contracts_v2.js antes de uso real. -->
-  {% for c in clausulas %}
-  <div class="clausula">
-    <div class="t">{{ c.titulo }}</div>
-    <div>{{ c.texto }}</div>
-  </div>
-  {% endfor %}
-
+{% macro assinaturas() -%}
   <div class="assinaturas">
     <div class="bloco-ass">
       {% if assinatura_diretora %}<img src="{{ assinatura_diretora }}">{% else %}<div style="height:52px"></div>{% endif %}
-      <div class="linha-ass">{{ entidade.diretora }}</div>
-      <div class="papel">Diretora Pedagógica &middot; Entidade Formadora</div>
+      <div class="linha-ass">A primeira outorgante</div>
+      <div class="papel">{{ entidade.representante }} &middot; {{ entidade.representante_qualidade }}</div>
     </div>
     <div class="bloco-ass">
       {% if assinatura_formando %}<img src="{{ assinatura_formando }}">{% else %}<div style="height:52px"></div>{% endif %}
-      <div class="linha-ass">{{ formando.nome }}</div>
-      <div class="papel">Formando(a)</div>
+      <div class="linha-ass">O segundo outorgante</div>
+      <div class="papel">{{ formando.nome }}</div>
     </div>
   </div>
+{%- endmacro %}
 
-  {% if auditoria %}
-  <div class="auditoria">
-    <b>Registo de assinatura eletrónica</b><br>
-    Assinado por {{ formando.nome }} em {{ auditoria.data }} (hora {{ auditoria.tz }}).
-    Endereço IP: {{ auditoria.ip }}. Consentimento explícito registado{% if tipo == 'B2C' %}, incluindo pedido expresso de início da formação durante o prazo de livre resolução{% endif %}.
-    Identificador do documento: {{ auditoria.doc_id }}.
-    Impressão digital SHA-256 (conteúdo): {{ auditoria.hash }}.
-  </div>
-  {% endif %}
+{# ========================= CORPO — MINUTA APROVADA ========================= #}
 
-  {% if formulario_resolucao %}
-  <div style="page-break-before: always;"></div>
-  <div class="cabecalho">
-    {% if logo %}
-      {% if logo.formato == "svg" %}<div class="logo">{{ logo.conteudo }}</div>
-      {% else %}<div class="logo"><img src="{{ logo.conteudo }}" alt="Sportrail"></div>{% endif %}
-    {% else %}<div class="marca">SPORT<span>RAIL</span></div>{% endif %}
-    <div class="ent">Anexo ao Contrato de Formação &middot; Sportrail, Lda. &middot; NIF {{ entidade.nif }}</div>
-  </div>
-  <h1>Formulário de Livre Resolução</h1>
-  <div class="sub">Decreto-Lei n.º 24/2014, de 14 de fevereiro &middot; a usar apenas se desejar resolver o contrato</div>
-  <div class="destaque" style="margin-top:14px">
-    <p style="margin:0 0 8px"><b>Para:</b> {{ entidade.nome }}, NIF {{ entidade.nif }}, {{ entidade.morada }} — {{ entidade.email }}</p>
-    <p style="margin:0">Pela presente comunico que resolvo o contrato de formação relativo à
-       ação <b>{{ curso.nome }}</b>, celebrado em ____ / ____ / ________.</p>
-  </div>
-  <table style="width:100%; font-size:9.5pt; margin-top:18px">
-    <tr><td style="padding:14px 0;">Nome do(a) formando(a):</td><td style="border-bottom:1px solid #999;">&nbsp;{{ formando.nome }}</td></tr>
-    <tr><td style="padding:14px 0;">Data:</td><td style="border-bottom:1px solid #999;">&nbsp;</td></tr>
-    <tr><td style="padding:14px 0;">Assinatura:</td><td style="border-bottom:1px solid #999;">&nbsp;</td></tr>
+{{ cabecalho(entidade.nome_curto ~ " · NIF " ~ entidade.nif ~ " · Entidade Formadora Certificada · " ~ entidade.morada) }}
+
+<h1>Contrato de Formação</h1>
+<div class="numero-contrato">N.º {% if auditoria %}{{ auditoria.doc_id }}{% else %}<span class="campo-vazio">&nbsp;</span>{% endif %}</div>
+
+<p class="preambulo">
+  Entre <b>{{ entidade.nome }}</b>, com o número de Pessoa Coletiva {{ entidade.nif }},
+  legalmente representada pela {{ entidade.representante_qualidade }}
+  {{ entidade.representante }}, adiante designada por entidade ou primeira outorgante
+  e <b class="campo">{{ formando.nome }}</b>, portador do documento de identificação
+  n.º <span class="campo">{% if formando.doc_identificacao %}{{ formando.doc_identificacao }}{% else %}&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;{% endif %}</span>,
+  com a data de validade de <span class="campo">{% if formando.validade_documento %}{{ formando.validade_documento }}{% else %}&nbsp;&nbsp;&nbsp;___-___-___&nbsp;&nbsp;&nbsp;{% endif %}</span>,
+  residente em <span class="campo">{% if formando.morada %}{{ formando.morada }}{% else %}&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;{% endif %}</span>,
+  concelho de <span class="campo">{% if formando.concelho %}{{ formando.concelho }}{% else %}&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;{% endif %}</span>,
+  distrito de <span class="campo">{% if formando.distrito %}{{ formando.distrito }}{% else %}&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;{% endif %}</span>,
+  adiante designado por formando ou segundo outorgante, é celebrado o presente
+  Contrato de Formação, o qual se rege pelas seguintes cláusulas:
+</p>
+
+{# Quadro de destaque (Camada 1 — DTP). Não faz parte da minuta aprovada: é o
+   resumo auditável dos dados da ação e do pagamento, que a minuta espalha pelas
+   cláusulas 1.ª e 2.ª. Fica acima do articulado, nunca a substituí-lo. #}
+<div class="destaque">
+  <table>
+    <tr><td class="k">Ação de formação</td><td class="v">{{ curso.nome }}</td></tr>
+    <tr><td class="k">Modalidade</td><td class="v">{{ curso.modalidade }}</td></tr>
+    <tr><td class="k">Duração</td><td class="v">{{ curso.duracao }}</td></tr>
+    <tr><td class="k">Data de início</td><td class="v">{{ curso.data_inicio }}</td></tr>
+    <tr><td class="k">Data de conclusão</td><td class="v">{{ curso.data_conclusao }}</td></tr>
+    {% if formando.nif %}<tr><td class="k">NIF do formando</td><td class="v">{{ formando.nif }}</td></tr>{% endif %}
+    {% if formando.cedula %}<tr><td class="k">Cédula de treinador</td><td class="v">{{ formando.cedula }}</td></tr>{% endif %}
+    {% if formando.clube %}<tr><td class="k">Clube / entidade</td><td class="v">{{ formando.clube }}</td></tr>{% endif %}
+    <tr><td class="k">Valor pago</td><td class="v">{{ formando.valor_pago }}</td></tr>
   </table>
-  <div class="auditoria" style="margin-top:24px">
-    O(A) Formando(a) dispõe de {{ prazo_resolucao }} dias seguidos, a contar da celebração do contrato,
-    para exercer este direito sem indicar motivo e sem custo, sem prejuízo do pagamento proporcional
-    do serviço já prestado caso a formação tenha tido início a seu pedido expresso.
-  </div>
-  {% endif %}
+</div>
+
+{% for c in corpo %}
+<div class="clausula">
+  <div class="num">{{ c.numero }}</div>
+  <div class="tit">{{ c.titulo }}</div>
+  {% for p in c.pontos %}
+    <div class="ponto">{% if p.n %}<span class="n">{{ p.n }}</span>{% endif %}<span>{{ p.texto }}</span></div>
+    {% for a in p.alineas %}
+    <div class="alinea"><span class="l">{{ a.l }}</span><span>{{ a.texto }}</span></div>
+    {% endfor %}
+  {% endfor %}
+</div>
+{% endfor %}
+
+<p class="fecho">{{ fecho }}</p>
+
+<div class="local-data">
+  {{ local_assinatura }}, {% if data_assinatura %}{{ data_assinatura }}{% else %}______ de _______________________ de 20___{% endif %}
+</div>
+
+{{ assinaturas() }}
+
+{% if auditoria %}
+<div class="auditoria">
+  <b>Registo de assinatura eletrónica</b><br>
+  Assinado por {{ formando.nome }} em {{ auditoria.data }} (hora {{ auditoria.tz }}).
+  Endereço IP: {{ auditoria.ip }}. Consentimento explícito registado{% if tipo == 'B2C' %}, incluindo pedido expresso de início da formação durante o prazo de livre resolução{% endif %}.
+  Identificador do documento: {{ auditoria.doc_id }}.
+  Impressão digital SHA-256 (conteúdo): {{ auditoria.hash }}.
+</div>
+{% endif %}
+
+{# ===================== ADENDA B2C (fora do corpo aprovado) ================= #}
+{% if adenda %}
+<div style="page-break-before: always;"></div>
+<div class="rodape-corrido">Adenda ao {{ versao_minuta }} &middot; DL 24/2014</div>
+{{ cabecalho("Adenda ao Contrato de Formação · " ~ entidade.nome_curto ~ " · NIF " ~ entidade.nif) }}
+<h1>Adenda — Direito de Livre Resolução</h1>
+<div class="sub">Decreto-Lei n.º 24/2014, de 14 de fevereiro &middot; contratos celebrados à distância</div>
+
+<p class="preambulo">
+  A presente adenda faz parte integrante do contrato de formação celebrado entre
+  <b>{{ entidade.nome }}</b> e <b>{{ formando.nome }}</b> relativo à ação
+  <b>{{ curso.nome }}</b>, e acrescenta-lhe os direitos que a lei do consumidor
+  confere ao segundo outorgante.
+</p>
+
+{% for c in adenda %}
+<div class="adenda-clausula">
+  <div class="t">{{ c.titulo }}</div>
+  <div>{{ c.texto }}</div>
+</div>
+{% endfor %}
+
+{{ assinaturas() }}
+{% endif %}
+
+{# ===================== ANEXO — FORMULÁRIO DE RESOLUÇÃO ===================== #}
+{% if formulario_resolucao %}
+<div style="page-break-before: always;"></div>
+<div class="rodape-corrido">Anexo à adenda &middot; formulário de livre resolução</div>
+{{ cabecalho("Anexo à Adenda do Contrato de Formação · " ~ entidade.nome_curto ~ " · NIF " ~ entidade.nif) }}
+<h1>Formulário de Livre Resolução</h1>
+<div class="sub">Decreto-Lei n.º 24/2014, de 14 de fevereiro &middot; a usar apenas se desejar resolver o contrato</div>
+<div class="destaque" style="margin-top:14px">
+  <p style="margin:0 0 8px"><b>Para:</b> {{ entidade.nome }}, NIF {{ entidade.nif }}, {{ entidade.morada }} — {{ entidade.email }}</p>
+  <p style="margin:0">Pela presente comunico que resolvo o contrato de formação relativo à
+     ação <b>{{ curso.nome }}</b>, celebrado em ____ / ____ / ________.</p>
+</div>
+<table style="width:100%; font-size:9.5pt; margin-top:18px">
+  <tr><td style="padding:14px 0;">Nome do(a) formando(a):</td><td style="border-bottom:1px solid #999;">&nbsp;{{ formando.nome }}</td></tr>
+  <tr><td style="padding:14px 0;">Data:</td><td style="border-bottom:1px solid #999;">&nbsp;</td></tr>
+  <tr><td style="padding:14px 0;">Assinatura:</td><td style="border-bottom:1px solid #999;">&nbsp;</td></tr>
+</table>
+<div class="auditoria" style="margin-top:24px">
+  O(A) Formando(a) dispõe de {{ prazo_resolucao }} dias seguidos, a contar da celebração do contrato,
+  para exercer este direito sem indicar motivo e sem custo, sem prejuízo do pagamento proporcional
+  do serviço já prestado caso a formação tenha tido início a seu pedido expresso.
+</div>
+{% endif %}
 
 </body>
 </html>

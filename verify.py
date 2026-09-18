@@ -20,13 +20,15 @@ todos contra o esquema errado, enquanto em produção nenhum formando conseguia
 assinar. Um teste que valida código contra a sua própria suposição não prova
 nada. O estado saiu daqui; ver `tasks/bug-assinatura.md` no dashboard.
 """
+import re
 import sys
 import tempfile
 from pathlib import Path
 
 from core import contract
 from core.clausulas import (ENTIDADE, PRAZO_LIVRE_RESOLUCAO_DIAS,
-                            clausulas, texto_consentimento)
+                            MINUTA_APROVADA, VERSAO_MINUTA, corpo_contrato,
+                            texto_consentimento)
 from pypdf import PdfReader
 
 BASE = Path(__file__).resolve().parent
@@ -53,10 +55,8 @@ def main():
     # Autenticação dos endpoints (independente do pipeline de PDF)
     verificar_auth_api()
 
-    # 1) Cláusulas por variante
-    n_b2c = len(clausulas(online=True, tipo="B2C"))
-    n_b2b = len(clausulas(online=True, tipo="B2B"))
-    check(n_b2c > n_b2b, f"B2C tem mais cláusulas que B2B ({n_b2c} vs {n_b2b})")
+    # 1) Corpo do contrato = minuta aprovada, igual nas duas variantes
+    verificar_minuta(curso)
 
     # Formando de referência. Era lido do formandos_exemplo.xlsx, que saiu com
     # o excel_parser: quem lê Excel agora é o dashboard. Aqui basta a forma que
@@ -107,6 +107,26 @@ def main():
                               for pg in PdfReader(str(p_b2c)).pages)
         check(ENTIDADE["email"] in texto_b2c,
               f"PDF B2C indica o email da entidade ({ENTIDADE['email']})")
+
+        # O corpo aprovado tem de chegar INTEIRO aos dois PDFs. Isto é o teste
+        # que interessa: um `{campo}` mal escrito ou uma cláusula que o template
+        # deixa cair passam por todos os outros e só se veem no documento.
+        texto_b2b = "\n".join(pg.extract_text() or ""
+                              for pg in PdfReader(str(p_b2b)).pages)
+        for rotulo, texto in (("B2C", texto_b2c), ("B2B", texto_b2b)):
+            verificar_fidelidade_pdf(rotulo, texto)
+
+        # A adenda de consumidor é o que separa as variantes — e vive FORA do
+        # corpo aprovado. Se aparecesse no B2B, o contrato da empresa dava um
+        # direito de consumidor que ela não tem.
+        check("livre resolução" in texto_b2c.lower(),
+              "PDF B2C traz a adenda de livre resolução")
+        check("livre resolução" not in texto_b2b.lower(),
+              "PDF B2B sem qualquer menção a livre resolução")
+
+        # Rodapé com a versão da minuta, nas páginas do corpo.
+        check(VERSAO_MINUTA in texto_b2b,
+              f"PDF traz o rodapé da versão da minuta ({VERSAO_MINUTA})")
     # 6) Consentimento — é o que dá valor jurídico à assinatura eletrónica
     verificar_consentimento()
 
@@ -119,6 +139,65 @@ def main():
         sys.exit(1)
     print("✅ Tudo OK.")
     sys.exit(0)
+
+
+# ---------------------------------------------------------------------------
+# Fidelidade à minuta aprovada pela DGERT
+# ---------------------------------------------------------------------------
+# O corpo do contrato não é texto nosso: é a minuta que a DGERT aprovou no
+# pedido de certificação. Se o documento gerado deixar de coincidir com ela, a
+# certificação deixa de cobrir o que a Sportrail faz assinar. Por isso:
+#   (a) a estrutura em `clausulas.py` tem de ter as cláusulas todas, com os
+#       rótulos tal como estão na minuta (incluindo a 10.ª sem 9.ª);
+#   (b) o texto tem de sair INTEIRO no PDF, nas duas variantes.
+
+# Uma frase-âncora por cláusula, copiada da minuta aprovada. Escolhidas por
+# serem inconfundíveis: se uma destas desaparece do PDF, faltou uma cláusula.
+ANCORAS_MINUTA = [
+    "não gera nem titula relações de trabalho subordinado",
+    "decorre de acordo com os horários que vierem a ser fixados",
+    "Caderneta Individual de Competências",
+    "Tratar com urbanidade a primeira outorgante",
+    "acompanhamento técnico-pedagógico dos formandos",
+    "Regulamento da Formação em vigor à data de início da formação",
+    "não confere ao formando direito a qualquer indemnização",
+    "impossibilidade superveniente, absoluta e definitiva",
+    "Decreto-Lei n.º 242/88, de 7 de julho e demais legislação",
+]
+
+
+def verificar_minuta(curso):
+    rotulos = [c["numero"] for c in MINUTA_APROVADA]
+    check(len(MINUTA_APROVADA) == 9,
+          f"Minuta aprovada com as 9 cláusulas ({len(MINUTA_APROVADA)})")
+    # A minuta aprovada salta da 8.ª para a 10.ª. É um erro DELA, e reproduzi-lo
+    # é o comportamento correto: corrigir a numeração é alterar um documento
+    # aprovado, decisão do jurista. Se alguém "arrumar" isto, este teste avisa.
+    check("CLÁUSULA 10.ª" in rotulos and "CLÁUSULA 9.ª" not in rotulos,
+          "Numeração preservada tal como na minuta (10.ª existe, 9.ª não)")
+    cl3 = next(c for c in MINUTA_APROVADA if c["numero"] == "CLÁUSULA 3.ª")
+    check([p.get("n") for p in cl3["pontos"]] == ["3.", "4."],
+          "Cláusula 3.ª mantém os pontos numerados 3. e 4. (como na minuta)")
+
+    # Nenhum campo pode ficar por interpolar: um "{horas}" impresso num contrato
+    # é pior do que um tracejado — parece um dado e não é.
+    corpo = corpo_contrato(curso)
+    texto = " ".join(p["texto"] for c in corpo for p in c["pontos"])
+    check("{" not in texto and "}" not in texto,
+          "Campos do curso todos interpolados (sem chavetas no texto)")
+    check(curso["nome"] in texto and curso["data_inicio"] in texto,
+          "Ação e datas do curso presentes no articulado")
+
+
+def verificar_fidelidade_pdf(rotulo, texto):
+    # O extract_text do pypdf parte linhas onde o PDF as parte; comparar por
+    # frase exige normalizar os espaços primeiro.
+    normalizado = re.sub(r"\s+", " ", texto)
+    em_falta = [a for a in ANCORAS_MINUTA
+                if re.sub(r"\s+", " ", a) not in normalizado]
+    check(not em_falta,
+          f"PDF {rotulo} reproduz as 9 cláusulas da minuta aprovada"
+          + (f" (falta: {em_falta[0][:40]}...)" if em_falta else ""))
 
 
 # ---------------------------------------------------------------------------

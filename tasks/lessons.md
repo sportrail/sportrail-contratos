@@ -114,3 +114,46 @@ errada. Estava escrito nos dois repos, em texto simples, e passou.
 **Correção:** o estado saiu deste repo (ficou só o motor de contratos e de
 PDF). A página de assinatura passou para o dashboard, onde as tabelas estão
 mesmo. Detalhe em `tasks/bug-assinatura.md`, no dashboard.
+
+---
+
+## 2026-09-18 — A minuta aprovada pela DGERT
+
+- **O texto legal que estava no repo era rascunho inventado.** Havia um comentário a
+  dizer "dado como validado pela Sportrail" por cima de cláusulas que ninguém tinha
+  aprovado. Quando o documento real apareceu, não coincidia em nada: outra estrutura,
+  outra identificação das partes (documento de identificação, não NIF), outro fecho.
+  Lição: "validado" num comentário não é validação; a fonte tem de ser um ficheiro que
+  se possa apontar.
+- **Um documento aprovado reproduz-se com os defeitos.** A minuta numera a Cláusula 3.ª
+  com os pontos "3." e "4." e salta da Cláusula 8.ª para a 10.ª. A tentação é arrumar
+  isso. Arrumar era alterar o que a DGERT aprovou — e ninguém dava por ela. Ficaram
+  como estão, com um teste que FALHA se alguém os "corrigir" sem passar pelo jurista.
+- **Acrescentar ao aprovado faz-se por fora.** A livre resolução (DL 24/2014) não está
+  na minuta e é obrigatória para consumidores. Meter cláusulas no articulado resolvia o
+  problema jurídico e criava outro: o contrato deixava de ser o aprovado. Foi para
+  adenda, depois das assinaturas, e o rodapé "V1. 2024" não a acompanha.
+- **Âncoras de texto são o teste que este ficheiro precisa.** Contar cláusulas não
+  chega: o corpo pode sair truncado com a contagem certa. O verify.py procura no TEXTO
+  DO PDF uma frase inconfundível por cláusula — se uma cai, o teste sabe qual.
+
+---
+
+## 2026-09-18 — Trabalhei contra um `main` que já não existia
+
+**O que aconteceu.** Comecei esta sessão de um clone tirado antes do merge do
+PR #6, que tirou o estado a esta app. Reescrevi `core/excel_parser.py`,
+`core/store.py`, o `supabase_schema.sql` e três templates — ficheiros que o
+`main` tinha apagado quinze minutos antes. Fiz `make verify` verde, abri o PR, e
+só ao ler o CI é que dei pelo desencontro: metade do meu diff ressuscitava a
+metade que tinha acabado de ser deliberadamente removida.
+
+**A lição.** Verde localmente não diz nada sobre a base. Antes de abrir um PR,
+`git fetch origin main` e olhar para `HEAD..origin/main` — sobretudo num repo com
+PRs a andar no mesmo dia. O clone da sessão é uma fotografia, não o repositório.
+
+**O que se salvou.** A parte do trabalho que era mesmo deste repo — a minuta
+aprovada — sobreviveu inteira. O parser e o backfill mudaram de casa para o
+dashboard, que é onde o estado passou a viver, e é lá que estão. Isto foi barato
+porque as duas metades já estavam separadas por módulo; se estivessem entrelaçadas
+no mesmo ficheiro, o desencontro custava a sessão toda.
