@@ -29,7 +29,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
-from core import excel_parser, contract, store, drive, pdfstore
+from core import excel_parser, contract, clausulas, store, drive, pdfstore
 
 BASE = Path(__file__).resolve().parent
 
@@ -240,6 +240,28 @@ class GerarContratoIn(BaseModel):
 class RenderPdfIn(BaseModel):
     html: str
     nome: Optional[str] = None     # só para diagnóstico; não afeta o render
+
+
+class ContratoPreviewIn(BaseModel):
+    curso: dict
+    formando: dict
+    tipo: str = "B2C"
+
+
+# --- API: contrato por assinar, em HTML ------------------------------------
+# A página de assinatura vive no dashboard, mas o texto do contrato e a
+# declaração de consentimento são texto jurídico e têm de ter uma fonte só.
+# Este endpoint devolve os dois já hidratados, sem assinatura e sem auditoria:
+# é o que o formando lê antes de assinar. Sem estado — não escreve nada.
+@app.post("/api/contrato-preview")
+def api_contrato_preview(dados: ContratoPreviewIn,
+                         x_api_token: Optional[str] = Header(default=None)):
+    _exigir_token_api(x_api_token)
+    return {
+        "html": contract.render_html(dados.curso, dados.formando,
+                                     tipo=dados.tipo),
+        "consentimento": clausulas.texto_consentimento(dados.tipo),
+    }
 
 
 @app.post("/api/gerar-contrato")

@@ -382,7 +382,8 @@ ROTAS_COORDENACAO = {("GET", "/"), ("POST", "/criar-lote"),
                      ("GET", "/lote/{lote_id}")}
 ROTAS_ABERTAS = {("GET", "/assinar/{token}"), ("POST", "/assinar/{token}"),
                  ("GET", "/pdf/{token}"), ("GET", "/health"),
-                 ("POST", "/api/gerar-contrato"), ("POST", "/api/render-pdf")}
+                 ("POST", "/api/gerar-contrato"), ("POST", "/api/render-pdf"),
+                 ("POST", "/api/contrato-preview")}
 
 
 def verificar_auth():
