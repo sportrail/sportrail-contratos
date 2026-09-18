@@ -1,3 +1,22 @@
+## Sessão 7 — juntar PDF (/api/juntar-pdf) para o DTP compilado
+
+Contexto: o dossier técnico-pedagógico acaba num PDF único, ordenado pelas
+secções do referencial. O dashboard tem os 15 documentos arquivados no Storage;
+juntá-los é a única peça que falta e é Python — o `pypdf` já cá está, usado até
+agora só pelo `verify.py`.
+
+O DTP compilado junta os PDF **tal como foram arquivados**, não os regera. É esse
+o ponto: o compilado é o dossier como ele foi assinado e datado, e o hash de cada
+parte já está registado no dashboard.
+
+- [x] `contract.juntar_pdfs(documentos)` — junta e escreve os marcadores (outline)
+- [x] `POST /api/juntar-pdf` — mesmo `X-Api-Token`, sem estado, com limites próprios
+- [x] Falhar fechado e falar claro: PDF corrompido ou cifrado dá 422 dizendo QUAL
+- [x] verify.py: junta 3 PDF, conta páginas, lê os marcadores, rejeita lixo e
+      confirma que a rota exige token
+- [x] CLAUDE.md + README: a tabela de endpoints passa a ter quatro linhas
+- [x] Verificado: `make verify` verde (32 verificações, 6 delas novas)
+
 ## Sessão 6 — motor de PDF genérico (/api/render-pdf) para o Dossier DGERT
 
 Contexto: o dashboard vai gerar os documentos do dossier técnico-pedagógico. Os

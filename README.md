@@ -60,6 +60,18 @@ Motor genérico, para os documentos do dossier (templates no dashboard).
 O HTML vem de fora e **não é de confiar**: corre isolado, sem acesso ao disco
 nem à rede, e recusa acima de 2 MB (→ 413).
 
+### `POST /api/juntar-pdf`
+Junta PDF **já gerados** num só, com marcadores — o DTP compilado.
+```json
+{ "documentos": [ { "pdf_base64": "...", "titulo": "02 · Programa" }, ... ] }
+→ { "pdf_base64": "...", "hash": "...", "doc_id": "...", "data": "...",
+    "tz": "...", "paginas": 42 }
+```
+A ordem é a que vem — quem sabe a ordem do referencial é o dashboard. Recusa
+(→ 422) base64 inválido, PDF ilegível, cifrado ou vazio, **dizendo qual**: uma
+parte ignorada em silêncio dava um dossier com um documento a menos. Limites:
+40 documentos, 40 MB no conjunto.
+
 ### `GET /health`
 Health check do Render. Aberto de propósito.
 

@@ -8,7 +8,8 @@ Verifica, sem servidor e sem rede:
   4. nenhum marcador de andaime no texto extraído dos PDF;
   5. o texto de consentimento, que é o que dá valor jurídico à assinatura;
   6. o render genérico isolado (/api/render-pdf) e a sua paginação;
-  7. que todas as rotas exigem o PDF_API_TOKEN, exceto o /health.
+  7. juntar PDF (/api/juntar-pdf): páginas, marcadores e recusa de lixo;
+  8. que todas as rotas exigem o PDF_API_TOKEN, exceto o /health.
 
 Sai com código 0 se tudo passar, 1 se algo falhar.
 
@@ -20,6 +21,7 @@ todos contra o esquema errado, enquanto em produção nenhum formando conseguia
 assinar. Um teste que valida código contra a sua própria suposição não prova
 nada. O estado saiu daqui; ver `tasks/bug-assinatura.md` no dashboard.
 """
+import io
 import sys
 import tempfile
 from pathlib import Path
@@ -112,6 +114,9 @@ def main():
 
     # 7) Render genérico (motor de PDF do dossier)
     verificar_render_isolado()
+
+    # 8) Juntar PDF (DTP compilado)
+    verificar_juntar_pdfs()
 
     print()
     if falhas:
@@ -239,6 +244,69 @@ def verificar_consentimento():
 
 
 # ---------------------------------------------------------------------------
+# Juntar PDF (/api/juntar-pdf — o DTP compilado)
+# ---------------------------------------------------------------------------
+# O compilado junta documentos ARQUIVADOS. Se uma parte entrar corrompida e for
+# ignorada em silêncio, o dossier sai com um documento a menos e ninguém repara
+# até alguém o auditar. Por isso o que se verifica aqui não é só que junta: é
+# que RECUSA, e que diz qual.
+
+def verificar_juntar_pdfs():
+    from core import contract
+
+    def pdf_de(texto, paginas=1):
+        corpo = "".join(
+            f'<div style="{"break-before: page;" if i else ""}">{texto} {i + 1}</div>'
+            for i in range(paginas))
+        return contract.gerar_pdf_bytes_isolado(
+            f"<!DOCTYPE html><html><body>{corpo}</body></html>")
+
+    partes = [
+        {"pdf": pdf_de("Programa", 2), "titulo": "02 · Programa de formação"},
+        {"pdf": pdf_de("Cronograma", 1), "titulo": "03 · Cronograma"},
+        {"pdf": pdf_de("Pauta", 3), "titulo": "10 · Pauta de avaliação"},
+    ]
+
+    junto = contract.juntar_pdfs(partes)
+    leitor = PdfReader(io.BytesIO(junto))
+    check(len(leitor.pages) == 6,
+          f"Junta 2+1+3 páginas e dá 6 (deu {len(leitor.pages)})")
+
+    titulos = [item.title for item in leitor.outline if hasattr(item, "title")]
+    check(titulos == [p["titulo"] for p in partes],
+          f"Marcadores pela ordem dada (deu {titulos})")
+
+    # A ordem é a que vem. Quem sabe a ordem do referencial é o dashboard — um
+    # motor que reordenasse por sua conta partia isso em silêncio.
+    invertido = PdfReader(io.BytesIO(contract.juntar_pdfs(list(reversed(partes)))))
+    primeiro = [i.title for i in invertido.outline if hasattr(i, "title")][0]
+    check(primeiro == partes[-1]["titulo"],
+          "A ordem dos documentos é a que vem, não uma escolhida aqui")
+
+    def recusa(documentos, porque):
+        try:
+            contract.juntar_pdfs(documentos)
+            return None
+        except ValueError as e:
+            return str(e)
+
+    erro = recusa([partes[0], {"pdf": b"nao sou um pdf", "titulo": "Lixo"}], "lixo")
+    check(erro is not None and "Lixo" in erro,
+          f"PDF ilegível é recusado e a mensagem diz qual (deu {erro!r})")
+
+    erro_vazio = recusa([{"pdf": b"", "titulo": "Vazio"}], "vazio")
+    check(erro_vazio is not None and "Vazio" in erro_vazio,
+          f"PDF vazio é recusado e a mensagem diz qual (deu {erro_vazio!r})")
+
+    check(recusa([], "nada") is not None, "Lista vazia é recusada")
+
+    demais = [{"pdf": partes[0]["pdf"], "titulo": f"D{i}"}
+              for i in range(contract.LIMITE_JUNTAR_PARTES + 1)]
+    check(recusa(demais, "demasiados") is not None,
+          f"Acima de {contract.LIMITE_JUNTAR_PARTES} documentos é recusado")
+
+
+# ---------------------------------------------------------------------------
 # Autenticação dos endpoints
 # ---------------------------------------------------------------------------
 # Os três /api/* geram documentos com dados pessoais a partir do que lhes
@@ -252,7 +320,7 @@ def verificar_consentimento():
 # partilhado por env.
 
 ROTAS_API = {("POST", "/api/contrato-preview"), ("POST", "/api/gerar-contrato"),
-             ("POST", "/api/render-pdf")}
+             ("POST", "/api/render-pdf"), ("POST", "/api/juntar-pdf")}
 ROTAS_ABERTAS = {("GET", "/health")}
 
 

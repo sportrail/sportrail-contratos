@@ -38,6 +38,7 @@ Todos protegidos pelo mesmo `PDF_API_TOKEN` (header `x-api-token`), exceto o
 | `POST /api/contrato-preview` | `{curso, formando, tipo}` | `{html, consentimento}` — o contrato por assinar, para o formando ler |
 | `POST /api/gerar-contrato` | `{curso, formando, tipo, assinatura, ip}` | `{pdf_base64, hash, doc_id, data, tz}` — o contrato assinado, com auditoria |
 | `POST /api/render-pdf` | `{html}` | `{pdf_base64, hash, doc_id, data, tz}` — motor genérico do dossier |
+| `POST /api/juntar-pdf` | `{documentos:[{pdf_base64, titulo}]}` | `{pdf_base64, hash, doc_id, data, tz, paginas}` — o DTP compilado |
 | `GET /health` | — | `{status: "ok"}` (health check do Render) |
 
 **O `/api/render-pdf` recebe HTML de fora e NÃO é de confiar**:
@@ -49,6 +50,15 @@ assinaturas) vai embutido em `data:` URI. Há um limite de 2 MB de HTML (→ 413
 
 Os outros dois hidratam os nossos próprios templates, por isso não precisam do
 mesmo isolamento.
+
+**O `/api/juntar-pdf` junta PDF como eles foram arquivados — não os regera.**
+É esse o ponto do DTP compilado: é o dossier tal como foi datado e arquivado, e
+o hash de cada parte já está registado no dashboard. A ordem é a que vem no
+pedido; quem conhece a ordem do referencial é o dashboard, que tem o catálogo.
+Falha **fechado e a dizer qual**: base64 inválido, PDF ilegível, cifrado ou sem
+páginas dão 422 com o título do documento na mensagem. Uma parte ignorada em
+silêncio dava um dossier com um documento a menos, e ninguém reparava até à
+auditoria. Limites: 40 documentos e 40 MB no conjunto.
 
 ## Como correr e verificar
 
@@ -82,11 +92,12 @@ Frankfurt, Docker). `render.yaml` + `Dockerfile`. No plano free adormece após
 ## Arquitetura
 
 ```
-app.py                 4 rotas: 3 endpoints /api/* + /health
+app.py                 5 rotas: 4 endpoints /api/* + /health
 core/
   clausulas.py         entidade + cláusulas em 3 CAMADAS + variantes B2C/B2B
                        + texto_consentimento()
   contract.py          hidrata template -> HTML -> PDF (weasyprint) + auditoria/hash
+                       + juntar_pdfs() (pypdf) para o DTP compilado
 templates/
   contrato.html        o contrato (merge fields, brand) + anexo livre resolução
 static/assinatura_diretora.png   SUBSTITUIR pela assinatura real
@@ -153,6 +164,7 @@ razão: é texto jurídico.
 - [x] `/api/gerar-contrato` — motor de contratos do dashboard.
 - [x] `/api/render-pdf` — motor de PDF genérico do dossier.
 - [x] `/api/contrato-preview` — contrato por assinar, em HTML.
+- [x] `/api/juntar-pdf` — junta os documentos arquivados no DTP compilado.
 - [x] Fontes da marca na imagem (antes todo o PDF saía em DejaVu, sem erro).
 - [x] Sair do negócio do estado: o que tinha estado passou para o dashboard.
 - [ ] **Colar o texto jurídico validado por cima dos blocos `[JURISTA]`.**
