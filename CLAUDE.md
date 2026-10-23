@@ -35,8 +35,8 @@ Todos protegidos pelo mesmo `PDF_API_TOKEN` (header `x-api-token`), exceto o
 
 | Endpoint | Recebe | Devolve |
 | --- | --- | --- |
-| `POST /api/contrato-preview` | `{curso, formando, tipo}` | `{html, consentimento}` — o contrato por assinar, para o formando ler |
-| `POST /api/gerar-contrato` | `{curso, formando, tipo, assinatura, ip}` | `{pdf_base64, hash, doc_id, data, tz}` — o contrato assinado, com auditoria |
+| `POST /api/contrato-preview` | `{curso, formando, tipo, assinatura_entidade?}` | `{html, consentimento}` — o contrato por assinar, para o formando ler |
+| `POST /api/gerar-contrato` | `{curso, formando, tipo, assinatura, ip, assinatura_entidade?}` | `{pdf_base64, hash, doc_id, data, tz}` — o contrato assinado, com auditoria |
 | `POST /api/render-pdf` | `{html}` | `{pdf_base64, hash, doc_id, data, tz}` — motor genérico do dossier |
 | `POST /api/juntar-pdf` | `{documentos:[{pdf_base64, titulo}]}` | `{pdf_base64, hash, doc_id, data, tz, paginas}` — o DTP compilado |
 | `GET /health` | — | `{status: "ok"}` (health check do Render) |
@@ -100,7 +100,6 @@ core/
                        + juntar_pdfs() (pypdf) para o DTP compilado
 templates/
   contrato.html        o contrato (merge fields, brand) + anexo livre resolução
-static/assinatura_diretora.png   SUBSTITUIR pela assinatura real
 static/logo_sportrail.svg        logótipo do cabeçalho (vetorial, do EPS da marca);
                        sem ficheiro, cai para a wordmark tipográfica
 static/fonts/          Bebas Neue + DM Sans (OFL); o Dockerfile instala-as como
@@ -110,6 +109,15 @@ verify.py              smoke test
 
 Nada em `static/` é servido por HTTP: o `contract.py` lê-o do disco e embute-o
 em `data:` URI. O mount `/static` saiu com as páginas web.
+
+### A assinatura da entidade vem do dashboard (23 out 2026)
+A linha «Diretora Pedagógica · Entidade Formadora» leva a imagem que o dashboard
+envia em `assinatura_entidade` — a assinatura carregada em Dossier → Parâmetros,
+a mesma do certificado. **Aqui não há ficheiro de assinatura nenhum.** O
+`static/assinatura_diretora.png` que existia era o nome da diretora escrito em
+itálico: um nome tipografado aposto como assinatura em todos os contratos. Saiu.
+Sem imagem enviada, o espaço fica em branco; só entra `data:image/png|jpeg;base64`
+(`assinatura_entidade_valida`), porque estes templates não correm isolados.
 
 ## Regras de domínio (não quebrar)
 
