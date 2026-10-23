@@ -22,7 +22,7 @@ Endpoints, todos protegidos pelo mesmo `PDF_API_TOKEN`, exceto o health check:
   POST /api/contrato-preview  {curso, formando, tipo} -> {html, consentimento}
       O contrato por assinar, para o formando ler. Sem assinatura, sem auditoria.
 
-  POST /api/gerar-contrato    {curso, formando, tipo, assinatura, ip}
+  POST /api/gerar-contrato    {curso, formando, tipo, assinatura, ip, assinatura_entidade?}
                               -> {pdf_base64, hash, doc_id, data, tz}
       O contrato assinado, com trilho de auditoria.
 
@@ -85,6 +85,9 @@ class ContratoPreviewIn(BaseModel):
     curso: dict
     formando: dict
     tipo: str = "B2C"
+    # data:image/png|jpeg;base64 da assinatura da diretora pedagógica, carregada
+    # no dashboard. Sem ela, a linha da entidade sai em branco.
+    assinatura_entidade: Optional[str] = None
 
 
 class GerarContratoIn(BaseModel):
@@ -93,6 +96,7 @@ class GerarContratoIn(BaseModel):
     tipo: str = "B2C"
     assinatura: str            # data:image/... base64 da assinatura do formando
     ip: Optional[str] = None
+    assinatura_entidade: Optional[str] = None   # a da diretora, vinda do dashboard
 
 
 class RenderPdfIn(BaseModel):
@@ -120,7 +124,8 @@ def api_contrato_preview(dados: ContratoPreviewIn,
     _exigir_token_api(x_api_token)
     return {
         "html": contract.render_html(dados.curso, dados.formando,
-                                     tipo=dados.tipo),
+                                     tipo=dados.tipo,
+                                     assinatura_entidade=dados.assinatura_entidade),
         "consentimento": clausulas.texto_consentimento(dados.tipo),
     }
 
@@ -135,7 +140,8 @@ def api_gerar_contrato(dados: GerarContratoIn,
     aud = contract.construir_auditoria(dados.curso, dados.formando,
                                        dados.assinatura, doc_id, dados.ip)
     html = contract.render_html(dados.curso, dados.formando, tipo=dados.tipo,
-                                assinatura_formando=dados.assinatura, auditoria=aud)
+                                assinatura_formando=dados.assinatura, auditoria=aud,
+                                assinatura_entidade=dados.assinatura_entidade)
     pdf = contract.gerar_pdf_bytes(html)
     return {
         "pdf_base64": base64.b64encode(pdf).decode(),

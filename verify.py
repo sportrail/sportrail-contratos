@@ -103,6 +103,29 @@ def main():
                   f"PDF {rotulo} sem marcadores de andaime"
                   + (f" (encontrado: {', '.join(sujos)})" if sujos else ""))
 
+        # A assinatura da entidade é a que o dashboard envia — e só essa. Sem
+        # ela, o espaço fica em branco: nenhum ficheiro do repositório a
+        # substitui, e um nome tipografado não é uma assinatura.
+        sem = contract.render_html(curso, f, tipo="B2C")
+        bloco_ent = sem.split('class="bloco-ass"')[1]
+        check("<img" not in bloco_ent and not (Path(contract.BASE) / "static" / "assinatura_diretora.png").exists(),
+              "Sem assinatura enviada, a linha da entidade fica em branco")
+        assin_ent = sig
+        com = contract.render_html(curso, f, tipo="B2C", assinatura_entidade=assin_ent)
+        check(f'<img src="{assin_ent}">' in com.split('class="bloco-ass"')[1],
+              "A assinatura enviada pelo dashboard é a que sai por cima da linha da entidade")
+        for mau in ("file:///etc/passwd", "https://exemplo.pt/a.png",
+                    'data:image/png;base64,AAA" onload="x', "data:image/svg+xml;base64,PHN2Zz4="):
+            h = contract.render_html(curso, f, tipo="B2C", assinatura_entidade=mau)
+            check("<img" not in h.split('class="bloco-ass"')[1],
+                  f"Assinatura da entidade recusada: {mau[:30]}…")
+        p_ent, p_sem = Path(tmp) / "ent.pdf", Path(tmp) / "sem.pdf"
+        contract.gerar_pdf(com, str(p_ent))
+        contract.gerar_pdf(sem, str(p_sem))
+        imagens = lambda c: sum(len(pg.images) for pg in PdfReader(str(c)).pages)
+        check(imagens(p_sem) == 0 and imagens(p_ent) > 0,
+              f"A assinatura da entidade chega ao PDF ({imagens(p_sem)} → {imagens(p_ent)} imagens)")
+
         # O email da entidade tem de sair impresso: é o endereço para onde o
         # formando envia a declaração de livre resolução. Só aparece no B2C.
         texto_b2c = "\n".join(pg.extract_text() or ""
@@ -167,7 +190,7 @@ def verificar_render_isolado():
     hostil = ('<html><head><link rel="stylesheet" href="file:///etc/passwd">'
               '</head><body><p>corpo</p>'
               '<img src="file:///etc/passwd">'
-              '<img src="static/assinatura_diretora.png">'
+              '<img src="static/logo_sportrail.svg">'
               '</body></html>')
     with tempfile.TemporaryDirectory() as tmp:
         alvo = Path(tmp) / "hostil.pdf"

@@ -1,5 +1,6 @@
 """Hidrata o template do contrato e gera o PDF. Calcula trilho de auditoria."""
 import hashlib
+import re
 import datetime
 import io
 from pathlib import Path
@@ -15,14 +16,26 @@ BASE = Path(__file__).resolve().parent.parent
 _env = Environment(loader=FileSystemLoader(str(BASE / "templates")))
 
 
-def _assinatura_diretora_data_uri():
-    """Devolve a assinatura da Diretora como data-URI (ou None se não existir)."""
-    p = BASE / "static" / "assinatura_diretora.png"
-    if not p.exists():
+# A assinatura da entidade vem do dashboard, que é onde a coordenação a
+# carrega (Dossier → Parâmetros, a mesma do certificado). Aqui não há ficheiro
+# nenhum: até 23 out 2026 havia um `static/assinatura_diretora.png` que era o
+# nome da diretora escrito numa letra itálica — um nome tipografado com cara de
+# assinatura, aposto em todos os contratos. O código nunca desenha nem inventa
+# uma assinatura; sem imagem enviada, o espaço por cima da linha fica em branco.
+_ASSINATURA_ACEITE = re.compile(r"^data:image/(png|jpeg);base64,[A-Za-z0-9+/=]+$")
+ASSINATURA_ENTIDADE_MAX = 1_500_000
+
+
+def assinatura_entidade_valida(valor):
+    """A data-URI da assinatura da entidade, se for uma imagem embutida; senão None.
+
+    Só `data:image/png|jpeg;base64`: nada de endereços (o WeasyPrint dos nossos
+    templates não está isolado — um `file://` aqui lia ficheiros do servidor),
+    nem aspas que fechem o atributo.
+    """
+    if not valor or not isinstance(valor, str) or len(valor) > ASSINATURA_ENTIDADE_MAX:
         return None
-    import base64
-    b64 = base64.b64encode(p.read_bytes()).decode()
-    return f"data:image/png;base64,{b64}"
+    return valor if _ASSINATURA_ACEITE.match(valor) else None
 
 
 def _logo():
@@ -44,7 +57,7 @@ def _logo():
 
 
 def render_html(curso, formando, *, tipo="B2C", assinatura_formando=None,
-                auditoria=None):
+                auditoria=None, assinatura_entidade=None):
     """Devolve o HTML do contrato hidratado para a variante B2C ou B2B."""
     tpl = _env.get_template("contrato.html")
     online = curso.get("modalidade", "").lower().startswith("online") \
@@ -55,7 +68,7 @@ def render_html(curso, formando, *, tipo="B2C", assinatura_formando=None,
         formando=formando,
         tipo=tipo.upper(),
         clausulas=clausulas(online=online, tipo=tipo),
-        assinatura_diretora=_assinatura_diretora_data_uri(),
+        assinatura_diretora=assinatura_entidade_valida(assinatura_entidade),
         logo=_logo(),
         assinatura_formando=assinatura_formando,
         auditoria=auditoria,

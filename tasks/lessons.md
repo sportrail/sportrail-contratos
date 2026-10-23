@@ -134,3 +134,13 @@ mesmo. Detalhe em `tasks/bug-assinatura.md`, no dashboard.
   os marcadores invertidos parece tolice. Não é: fixa que a ordem do referencial é
   decisão do dashboard, e não deste motor. Se alguém aqui resolver ordenar por
   título "para ficar arrumado", o teste acusa.
+
+## 23 out 2026 — um nome em itálico não é uma assinatura
+
+- O `static/assinatura_diretora.png` tinha o comentário «SUBSTITUIR pela assinatura
+  real» e nunca foi substituído: era o nome da diretora tipografado, e saiu em todos
+  os contratos assinados como se fosse a assinatura dela. Um placeholder que produz
+  um documento de aspeto acabado é pior do que um campo em branco — ninguém repara
+  que falta. Ficheiros de assinatura não vivem no repositório: vêm de quem os
+  carregou, e sem eles a linha fica vazia.
+
